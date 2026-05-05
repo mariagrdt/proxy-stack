@@ -48,12 +48,8 @@ Clients → Domain (DNS) → Nginx (TLS termination) → Docker containers
 
 - SSH access restricted to key-based authentication only
 - Custom SSH port (non-default)
-- TLS certificates via Let's Encrypt
+- TLS certificates via Let's Encrypt (automated by Signal proxy setup)
 - Isolated Docker network for inter-container communication
 - Only ports 443 (HTTPS) exposed externally
 
 ---
-
-## Screenshots
-
-> Screenshots available upon request (IP, domain, and personal info redacted for security reasons).
