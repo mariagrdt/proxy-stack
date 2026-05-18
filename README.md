@@ -36,10 +36,16 @@ All services are containerized, served behind a reverse proxy with TLS, and have
 ## Architecture
 
 ```
-Clients → Domain (DNS) → Nginx (TLS termination) → Docker containers
-                                                      ├── Signal Proxy
-                                                      ├── Telegram Proxy
-                                                      └── Xray
+                Production VPS
+                       │
+        ┌──────────────┼──────────────┐
+        │              │              │
+    Port 443       Port 443       Port 8888
+   (active OR)   (active OR)      (always)
+        │              │              │
+        ▼              ▼              ▼
+   Signal Proxy   Xray Reality   Telegram MTProto
+   (Docker)       (systemd)      (Docker)
 ```
 
 ---
