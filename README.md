@@ -59,3 +59,17 @@ All services are containerized, served behind a reverse proxy with TLS, and have
 - Exposed ports: 80 (TLS renewal), 443 (HTTPS), 8888 (Telegram) — SSH on custom port
 
 ---
+
+
+## Design Notes & Production Considerations
+
+This is a personal project serving my family (5 users). I secured the
+essentials — SSH hardening (key-only, custom port) and TLS on all web services.
+
+For a production environment in a company, I would additionally:
+- Add a WAF (Web Application Firewall) in front of the web services
+- Set up monitoring and real-time alerting to detect attacks
+- Restrict access by IP on sensitive ports (least privilege at network level)
+- Centralize logs for auditing and incident response
+
+For the current use case, the security level is proportionate to the risk.
