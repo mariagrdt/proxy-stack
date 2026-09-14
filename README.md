@@ -56,6 +56,6 @@ All services are containerized, served behind a reverse proxy with TLS, and have
 - Custom SSH port (non-default)
 - TLS certificates via Let's Encrypt (automated by Signal proxy setup)
 - Isolated Docker network for inter-container communication
-- Only ports 443 (HTTPS) exposed externally
+- Exposed ports: 80 (TLS renewal), 443 (HTTPS), 8888 (Telegram) — SSH on custom port
 
 ---
