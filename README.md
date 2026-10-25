@@ -68,13 +68,6 @@ Migration to **a single `docker-compose.yml`**:
 
 ---
 
-## Technical choices
-
-- **No Terraform here**: the VPS already exists, and its internal configuration (Docker, SSH, UFW) belongs to scripts / a configuration tool such as Ansible, not infrastructure IaC. Terraform would mainly be relevant for managing **DNS** (A record → IP). The right tool for the right job.
-- **Docker Compose over Kubernetes**: for a single server and three services, K8s would be overkill.
-
----
-
 ## Status
 
 - [x] SSH / UFW / fail2ban hardening
