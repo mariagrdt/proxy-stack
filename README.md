@@ -1,103 +1,88 @@
-# Secure Communication Proxies — Production VPS
+# Proxy Stack — Hardened multi-service VPS
 
-> This is my first personal project that actually serves a real purpose. It's used every day by my family, and I keep improving it as I learn.
+Administration of a Linux VPS (OVHcloud) hosting **three proxy services** for a small group of users, in production for over six months. Goal: private, censorship-resistant network access for **Signal**, **Telegram** and general traffic.
 
-A set of secure communication proxies running on a Linux VPS (OVH). The services are containerized (or run as hardened system services), sit behind an Nginx reverse proxy with TLS, and have been up in production for more than 6 months for 5 users.
+This repository also documents the **refactor** of the project: moving from a hand-made installation to a **unified, versioned and auto-deployed `docker-compose` stack**.
+
+---
 
 ## Services
 
-| Service         | Setup                                    | Purpose                   |
-|-----------------|------------------------------------------|---------------------------|
-| Signal Proxy    | Docker Compose + Nginx + TLS             | Secure messaging relay    |
-| Telegram Proxy  | Docker container (official MTProto image)| Encrypted messaging relay |
-| Xray (Reality)  | systemd service                          | Secure tunneling proxy    |
+| Service | Role |
+|---|---|
+| **Signal TLS Proxy** | TLS relay for Signal |
+| **Telegram MTProxy** | MTProto proxy for Telegram |
+| **Xray (VLESS-REALITY)** | general-purpose proxy with traffic obfuscation |
 
-## Stack
+---
 
-- OS: Ubuntu (OVH VPS)
-- Signal and Telegram: Docker Compose, Nginx, Let's Encrypt (TLS)
-- Xray: installed as a systemd service
-- DNS: custom domain with an A record
-- SSH: key-only access on a custom port
+## Initial version (simple)
 
-## What I did
+Originally, the three services were each installed **in their own way**:
 
-- Provisioned and configured the VPS (Ubuntu, OVH)
-- Set up DNS (A record, subdomain)
-- Issued and configured TLS certificates with Let's Encrypt
-- Hardened SSH access (key-only authentication, custom port)
-- Kept it running and monitored it in production for 6+ months
+- **Xray**: installed via a `systemd` script;
+- **Signal**: run in a separate Docker container;
+- **MTProxy**: **compiled** from source.
 
-## Current architecture
+The result was **functional** but **heterogeneous**. Three different methods to maintain, hard to reproduce identically on a new server, and no versioned trace of the configuration.
 
-```
-                Production VPS
-                       │
-        ┌──────────────┼──────────────┐
-        │              │              │
-    Port 443       Port 443       Port 8888
-   (active OR)   (active OR)      (always)
-        │              │              │
-        ▼              ▼              ▼
-   Signal Proxy   Xray Reality   Telegram MTProto
-   (Docker)       (systemd)      (Docker)
-```
+---
 
-## Security measures
+## Refactor in progress → a unified stack
 
-- SSH restricted to key-based authentication only
-- Custom SSH port (non-default)
-- TLS certificates with Let's Encrypt (automated by the Signal proxy setup)
-- Isolated Docker network for communication between containers
-- Exposed ports: 80 (TLS renewal), 443 (HTTPS), 8888 (Telegram), SSH on a custom port
+Migration to **a single `docker-compose.yml`**:
 
-## Design notes
+- **one container per service** (separation of concerns);
+- **official images** instead of compiling or scripting the install;
+- **configuration mounted as volumes**;
+- **secrets in a `.env`**, never committed.
 
-This is a personal project for my family (5 users). I focused on the essentials: SSH hardening (key-only, custom port) and TLS on all the web services. For this use case, the security level matches the actual risk.
+### Why this refactor
 
-I set the services up one at a time, as I needed them. That's why they don't share a single orchestration yet. The next section is how I want to rebuild it into a cleaner, more production-like stack.
+- **Reproducibility**: `docker compose up -d` recreates the whole stack on any server.
+- **Readability & maintenance**: the entire architecture lives in one declarative file.
+- **Versioning**: the infrastructure is tracked in Git (secrets excluded).
+- **Best practices**: secrets kept out of the code, separation of concerns, least privilege.
 
-## What I want to improve next
+---
 
-Right now the setup is a mix of Docker and systemd that I configured by hand. The goal for the next version is to turn it into a single, reproducible deployment, closer to what I'd set up in a company.
+## Automated deployment (CI/CD)
 
-What I want to add:
+**GitHub Actions** pipeline: on every `push` to `main`, a runner connects to the VPS over **SSH** and updates the stack.
 
-- A single `docker-compose.yml` that orchestrates all the services, instead of the current mix.
-- A WAF (ModSecurity with Nginx) in front of the web services to filter malicious traffic.
-- Centralized logging (ELK or Loki) so I can audit and investigate incidents.
-- Monitoring and alerting (Prometheus and Grafana) to catch anomalies and attacks in real time.
-- Tighter network rules: restrict sensitive ports by IP and segment the Docker networks per service.
-- TLS renewal handled by its own certbot container instead of being tied to one service.
-- Proper secrets management (Docker secrets or Vault) instead of plain config and env files.
+- A **dedicated deployment SSH key** (revocable without affecting other access);
+- secrets (`VPS_HOST`, `VPS_PORT`, `VPS_USER`, `VPS_SSH_KEY`) stored **encrypted** on GitHub;
+- the server's host fingerprint pre-registered with `ssh-keyscan` (no interactive prompt, anti-MITM).
 
-Target architecture I'm aiming for:
+> Currently: continuous deployment (**CD**). The validation step (**CI**: YAML lint, `docker compose config`) will be added **before** deployment.
 
-```
-                          Internet
-                             │
-                             ▼
-                    ┌─────────────────┐
-                    │   Nginx + WAF   │   reverse proxy, TLS,
-                    │  (ModSecurity)  │   rate limiting
-                    └────────┬────────┘
-                             │   (isolated Docker network)
-        ┌────────────────────┼────────────────────┐
-        ▼                    ▼                     ▼
-   Signal Proxy         Telegram Proxy          Xray
-   (container)          (container)          (container)
-        │                    │                     │
-        └────────────────────┴─────────┬───────────┘
-                                        ▼
-                          ┌──────────────────────────┐
-                          │  Observability sidecars  │
-                          │  Prometheus, Grafana     │
-                          │  Centralized logs (ELK)  │
-                          └──────────────────────────┘
+---
 
-   All services in one docker-compose.yml
-   Secrets injected via Docker secrets or Vault
-   A certbot container handles TLS renewal for everything
-```
+## Security
 
-I built it the current way because I needed something working and secure enough, fast. Cleaning it up into one IaC-managed stack with a WAF and real monitoring is the obvious next step, both to improve the design and to practice the production patterns I want to work with.
+- **Key-only SSH** access, `root` login disabled, custom port;
+- **UFW** firewall (default-deny, only the needed ports open);
+- **fail2ban** (bans brute-force IPs);
+- **TLS** via Let's Encrypt (HTTP-01 challenge);
+- secrets **kept out of the repository** (`.env` ignored by Git).
+
+---
+
+## Technical choices
+
+- **No Terraform here**: the VPS already exists, and its internal configuration (Docker, SSH, UFW) belongs to scripts / a configuration tool such as Ansible, not infrastructure IaC. Terraform would mainly be relevant for managing **DNS** (A record → IP). The right tool for the right job.
+- **Docker Compose over Kubernetes**: for a single server and three services, K8s would be overkill.
+
+---
+
+## Status
+
+- [x] SSH / UFW / fail2ban hardening
+- [x] GitHub Actions deployment pipeline (CD, working skeleton)
+- [ ] `docker-compose.yml` for the three services *(in progress)*
+- [ ] CI step (validation before deployment)
+- [ ] Full switch from the old install to the unified stack
+
+---
+
+*Personal DevOps / DevSecOps learning project — administration, containerization, security and automation of a real production infrastructure.*
