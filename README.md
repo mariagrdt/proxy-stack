@@ -20,6 +20,7 @@ A set of secure communication proxies running on a Linux VPS (OVH). The services
 - DNS: custom domain with an A record
 - SSH: key-only access on a custom port
 
+
 ## What I did
 
 - Provisioned and configured the VPS (Ubuntu, OVH)
