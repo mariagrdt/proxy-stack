@@ -65,11 +65,12 @@ Right now the setup is a mix of Docker and systemd that I configured by hand. Th
 What I want to add:
 
 - A single `docker-compose.yml` that orchestrates all the services, instead of the current mix.
-- A WAF (ModSecurity with Nginx) in front of the web services to filter malicious traffic.
+- Nginx as the single entry point on port 443, routing each connection by SNI (`stream` module + `ssl_preread`) without decrypting it. The proxy containers are no longer exposed directly.
+- No WAF in front of the proxies, on purpose: a WAF like ModSecurity inspects HTTP requests, but this traffic is encrypted tunnels (REALITY, MTProto, Signal's own TLS) that Nginx must pass through untouched. Connection limits (`limit_conn`) handle abuse at the stream level instead. A WAF would only make sense for a future web UI such as Grafana.
 - Centralized logging (ELK or Loki) so I can audit and investigate incidents.
 - Monitoring and alerting (Prometheus and Grafana) to catch anomalies and attacks in real time.
 - Tighter network rules: restrict sensitive ports by IP and segment the Docker networks per service.
-- TLS renewal handled by its own certbot container instead of being tied to one service.
+- TLS renewal handled by its own certbot container, for the Signal certificate only (Xray REALITY and MTProxy fake-TLS don't need one).
 - Proper secrets management (Docker secrets or Vault) instead of plain config and env files.
 
 Target architecture I'm aiming for:
@@ -79,8 +80,8 @@ Target architecture I'm aiming for:
                              │
                              ▼
                     ┌─────────────────┐
-                    │   Nginx + WAF   │   reverse proxy, TLS,
-                    │  (ModSecurity)  │   rate limiting
+                    │      Nginx      │   SNI routing, TLS passthrough,
+                    │    (stream)     │   connection limits (limit_conn)
                     └────────┬────────┘
                              │   (isolated Docker network)
         ┌────────────────────┼────────────────────┐
@@ -98,7 +99,8 @@ Target architecture I'm aiming for:
 
    All services in one docker-compose.yml
    Secrets injected via Docker secrets or Vault
-   A certbot container handles TLS renewal for everything
+   Only Nginx publishes ports (80/443); the proxies stay on the internal network
+   A certbot container renews the Signal TLS certificate
 ```
 
-I built it the current way because I needed something working and secure enough, fast. Cleaning it up into one IaC-managed stack with a WAF and real monitoring is the obvious next step, both to improve the design and to practice the production patterns I want to work with.
+I built it the current way because I needed something working and secure enough, fast. Cleaning it up into one IaC-managed stack with a single entry point and real monitoring is the obvious next step, both to improve the design and to practice the production patterns I want to work with.
