@@ -3,3 +3,4 @@
 *.key
 certs/
 secrets/
+signal/data/certbot/

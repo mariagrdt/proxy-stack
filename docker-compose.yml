@@ -1,0 +1,30 @@
+services:
+  
+  
+  
+  
+  # CONFIG SIGNAL
+
+  nginx-terminate:
+    image: nginx:stable-alpine@sha256:0e52bd054126cdc040b1276c0af347aeb02a41b9cfe305d6094767ac30e97949
+    restart: unless-stopped
+    volumes:
+      - ./signal/data/nginx-terminate:/usr/conf.d
+      - ./signal/data/certbot/conf:/etc/letsencrypt
+      - ./signal/data/certbot/www:/var/www/certbot
+    command: "/bin/sh -c 'while :; do sleep 6h & wait $${!}; /usr/sbin/nginx -s reload; done & /usr/sbin/nginx -c /usr/conf.d/nginx.conf -g \"daemon off;\"'"
+  
+  nginx-relay:
+    image: nginx:stable-alpine@sha256:0e52bd054126cdc040b1276c0af347aeb02a41b9cfe305d6094767ac30e97949
+    restart: unless-stopped
+    volumes:
+      - ./signal/data/nginx-relay:/usr/conf.d
+    command: "/bin/sh -c 'while :; do sleep 6h & wait $${!}; /usr/sbin/nginx -s reload; done & /usr/sbin/nginx -c /usr/conf.d/nginx.conf -g \"daemon off;\"'"
+  
+  certbot:
+    image: certbot/certbot@sha256:bc93cb710b413e6b456d622f9b0133b3e109c0a78c2ed9976af43d209b0a1805
+    restart: unless-stopped
+    volumes:
+      - ./signal/data/certbot/conf:/etc/letsencrypt
+      - ./signal/data/certbot/www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
