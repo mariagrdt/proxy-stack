@@ -1,0 +1,91 @@
+- name: Configure proxy server
+  hosts: vps
+  become: yes
+
+  tasks:
+  - name: Update apt cache
+    apt:
+      update_cache: yes
+
+
+# --- 2. Docker ---
+  # Install Docker and let deploy run it without sudo
+  
+  - name: Install Docker and Docker Compose
+    apt:
+      name:
+        - docker.io
+        - docker-compose-v2
+      state: present
+  
+  - name: Add ubuntu user to docker group
+    user:
+      name: ubuntu
+      groups: docker
+      append: yes
+
+  # --- 3. Firewall (UFW) ---
+  # Allow SSH/HTTP/HTTPS before enabling UFW, or we lock ourselves out
+
+  - name: Install UFW
+    apt: 
+      name: ufw
+      state: present
+  
+  
+  - name: Allow SSH through UFW
+    community.general.ufw:
+      rule: allow
+      port: "{{ ansible_port }}"
+      proto: tcp
+  
+  - name: Allow HTTP through UFW
+    community.general.ufw:
+      rule: allow
+      port: "80"
+      proto: tcp
+  
+  - name: Allow HTTPS through UFW
+    community.general.ufw:
+      rule: allow
+      port: "443"
+      proto: tcp
+
+
+  - name: Enable UFW
+    community.general.ufw:
+      state: enabled
+
+
+  # --- 4. fail2ban ---
+  # Ban IPs that fail SSH login too many times (on the custom SSH port)
+
+  - name: Install fail2ban
+    apt:
+      name: fail2ban
+      state: present
+
+  - name: Configure fail2ban for SSH
+    copy:
+      dest: /etc/fail2ban/jail.local
+      content: |
+        [sshd]
+        enabled  = true
+        port     = {{ ansible_port }}
+        backend  = systemd
+        maxretry = 5
+        findtime = 10m
+        bantime  = 1h
+    notify: Restart fail2ban
+
+  - name: Start fail2ban and enable it at boot
+    service:
+      name: fail2ban
+      state: started
+      enabled: yes
+
+  handlers:
+  - name: Restart fail2ban
+    service:
+      name: fail2ban
+      state: restarted

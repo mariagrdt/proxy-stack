@@ -1,134 +1,154 @@
-# Roadmap — Migration vers une stack docker-compose unique
+# Roadmap — Nouvelle architecture proxy-stack
 
-Objectif : passer des trois services installés à la main (systemd, Docker, compilation) à **un seul `docker-compose.yml`**, avec **Nginx en point d'entrée unique** qui route par SNI vers les conteneurs.
+**Situation de départ :** l'ancien VPS est sauvegardé (snapshot OVH). Le nouveau VPS est **vide**. On construit tout de zéro, de façon reproductible :
+
+- **Ansible** configure le serveur (utilisateur, SSH, pare-feu, fail2ban, Docker) ;
+- **docker-compose** décrit les services ;
+- **Nginx** est le point d'entrée unique et trie le trafic par SNI.
 
 ```
 client ──443──▶ Nginx (stream + ssl_preread)
-                  ├─ signal.<domaine>        → conteneur Signal
-                  ├─ <domaine fake-TLS>      → conteneur MTProxy
-                  └─ tout le reste (default) → conteneur Xray (REALITY)
+                  ├─ signal.<domaine>        → nginx-terminate (Signal)
+                  ├─ <domaine fake-TLS>      → MTProxy
+                  └─ tout le reste (default) → Xray (REALITY)
+client ──80───▶ Nginx → nginx-terminate:80 → certbot (certificat Signal)
 ```
 
 Chaque étape se termine par un **✅ critère de fin** : ne passe pas à la suivante tant qu'il n'est pas atteint.
 
----
-
-## Étape 0 — Faire l'inventaire de l'existant (sur le VPS)
-
-Avant d'écrire quoi que ce soit, note comment ça tourne **aujourd'hui**. Les nouvelles configs partiront de là.
-
-- [ ] Qui écoute sur quels ports : `sudo ss -tlnp`
-- [ ] **Xray** : où est sa config (`systemctl cat xray` te montre le chemin) ? Note l'UUID, la clé privée REALITY, le `dest` et les `serverNames`.
-- [ ] **Signal** : quel dossier, quel `docker-compose`, quel domaine, où sont les certificats ?
-- [ ] **MTProxy** : quel binaire, quel secret, quel port ? Le secret commence-t-il par `ee` (fake-TLS) ?
-- [ ] Les domaines et sous-domaines utilisés, et vers quoi pointe le DNS
-- [ ] **Sauvegarde** de toutes ces configs **hors du dépôt Git** (elles contiennent des secrets)
-
-✅ Tu as une fiche par service : port, domaine, secrets, chemin de config.
+> ⚠️ Si ta famille n'a plus de proxy pendant les travaux, vise d'abord une **première version qui marche** (étapes 1 → 6), puis améliore.
 
 ---
 
 ## Étape 1 — Organiser le dépôt
 
-- [✅] Renommer `mtpproxy/` → `mtproxy/` (petite faute de frappe dans le nom actuel)
-- [✅] Créer `nginx/` (il contiendra `nginx.conf`)
-- [ ] Lister dans `.env_example` **les noms** de toutes les variables secrètes, avec des valeurs bidon
-- [ ] Vérifier que `.gitignore` exclut bien `.env`, les certificats et toute config qui contient des secrets
-
-> 💡 **Piège Xray :** son `config.json` contient l'UUID et la clé privée, et Xray **ne lit pas** les variables d'environnement dans ce fichier. Deux options :
-> - committer un `config.json.example` sans secrets et garder le vrai `config.json` dans `.gitignore` (le plus simple pour commencer) ;
-> - générer le fichier au démarrage avec `envsubst` à partir d'un template (plus propre, à garder pour plus tard).
+- [x] Renommer `mtpproxy/` → `mtproxy/`
+- [x] Créer `nginx/`
+- [x] Créer `ansible/`
+- [ ] Lister dans `.env_example` **les noms** des variables secrètes, avec des valeurs bidon
+- [ ] Vérifier que `.gitignore` exclut `.env`, les certificats, `ansible/inventory.ini` et toute config qui contient des secrets
 
 ✅ L'arborescence est en place et `git status` ne montre aucun secret.
 
 ---
 
-## Étape 2 — Le squelette `docker-compose.yml`
+## Étape 2 — Ansible : préparer le VPS vide
 
-- [ ] Déclarer un **réseau interne** (section `networks:` en bas du fichier)
-- [ ] Service `nginx` : image officielle, `restart: unless-stopped`, ports `80` et `443` publiés, branché sur le réseau
-- [ ] Un service vide par proxy (`xray`, `mtproxy`, `signal`), branché sur le réseau, **sans `ports:`**
-- [ ] Vérifier la syntaxe : `docker compose config`
+Le VPS est vide : si une erreur te bloque l'accès, tu peux le réinstaller sans rien perdre. C'est le bon moment pour tester Ansible directement dessus.
 
-✅ `docker compose config` affiche le fichier sans erreur.
+Structure de départ (un seul playbook, les rôles viendront plus tard) :
 
----
+```
+ansible/
+├── inventory.ini.example   ← modèle, commité
+├── inventory.ini           ← vrai VPS, dans le .gitignore
+└── playbook.yml            ← sections commentées, dans l'ordre ci-dessous
+```
 
-## Étape 3 — Xray
+- [x] `inventory.ini` : IP, port SSH, utilisateur du VPS
+- [x] Vérifier la connexion : `ansible -i inventory.ini all -m ping`
+- [ ] **Paquets** : mises à jour, paquets de base, `unattended-upgrades`
+- [ ] **Utilisateur** : un utilisateur dédié avec ta clé SSH et `sudo`
+- [x] **Docker** : Docker + le plugin compose (reprendre ton projet AWS)
+- [ ] **SSH** : clé uniquement, `root` interdit, port personnalisé
+- [x] **UFW** : tout refuser par défaut ; ouvrir le port SSH, 80 et 443
+- [x] **fail2ban** : protection SSH
 
-- [ ] Choisir l'image (cherche l'image officielle dans le dépôt GitHub `XTLS/Xray-core`)
-- [ ] Monter `./xray/config.json` dans le conteneur, en lecture seule (`:ro`). Regarde dans la doc de l'image à quel chemin Xray cherche sa config.
-- [ ] Reprendre ta config actuelle et vérifier le port d'écoute de l'inbound. C'est ce port que Nginx visera sur le réseau interne.
+Détails et pièges rencontrés : [ansible.md](ansible.md).
 
-> 💡 **Point clé :** avec REALITY, le client n'envoie **pas** ton domaine dans le SNI. Il envoie le domaine de camouflage (celui de `serverNames`, par exemple un grand site connu). Nginx ne peut donc pas reconnaître Xray par ton domaine : Xray sera la **route par défaut** de Nginx (tout ce qui ne correspond ni à Signal ni à MTProxy).
+> 💡 Avant chaque nouvelle section : `ansible-playbook -i inventory.ini playbook.yml --check --diff` (simulation). Garde une session SSH ouverte quand tu appliques les sections SSH et UFW.
+>
+> 💡 Docker contourne UFW pour les ports publiés : seul Nginx doit avoir des `ports:` dans le compose.
 
-✅ Le conteneur démarre et `docker compose logs xray` ne montre pas d'erreur.
-
----
-
-## Étape 4 — Nginx en mode `stream`
-
-- [ ] Écrire `nginx/nginx.conf` avec un bloc `stream { }`. Dans ce mode, **pas** de bloc `http` pour le 443.
-- [ ] Activer `ssl_preread on;` pour que Nginx lise le SNI
-- [ ] Faire une table `map $ssl_preread_server_name ...` : chaque domaine → un service, et `default` → xray
-- [ ] Le `proxy_pass` utilise le résultat du `map`. Les conteneurs se joignent **par leur nom de service** (`xray:443`, etc.).
-- [ ] Ajouter `limit_conn` (nombre de connexions simultanées par IP)
-- [ ] Monter `nginx.conf` dans le conteneur, en lecture seule
-- [ ] Tester la config : `docker compose exec nginx nginx -t`
-
-> 💡 **IP des clients :** derrière Nginx, les conteneurs voient l'IP de Nginx, plus celle du vrai client. Ce n'est pas bloquant pour démarrer. Plus tard, regarde `proxy_protocol` (Nginx l'envoie, Xray sait le lire) si tu veux de vraies IP dans les logs ou pour fail2ban.
-
-✅ Avec seulement Xray derrière Nginx, un client Xray se connecte et navigue.
+✅ Le playbook s'exécute deux fois de suite sans erreur, et la 2ᵉ fois il n'affiche **aucun** `changed` (idempotence).
 
 ---
 
-## Étape 5 — MTProxy
+## Étape 3 — Décider : anciens ou nouveaux secrets ?
 
-- [ ] Choisir l'image : l'officielle `telegrammessenger/proxy`, ou **mtg** (`nineseconds/mtg`, dépôt `9seconds/mtg`), très active et pensée pour le fake-TLS. Compare les deux.
-- [ ] Utiliser un secret **fake-TLS** (qui commence par `ee`). Le domaine encodé dans ce secret est le SNI que Nginx verra.
-- [ ] Ajouter ce domaine dans le `map` de Nginx → `mtproxy`
-- [ ] Mettre le secret dans `.env`
+- **Récupérer** depuis le snapshot (UUID Xray, clé REALITY, secret MTProxy) → rien à changer sur les téléphones.
+- **Générer de nouveaux** → plus propre, mais il faudra redonner les liens à tout le monde.
 
-✅ Telegram se connecte via le proxy.
+⚠️ MTProxy doit utiliser un secret **fake-TLS (`ee…`)**, sinon Nginx ne peut pas le trier par SNI. Si l'ancien secret n'est pas `ee`, il faut en créer un nouveau de toute façon.
 
----
+- [ ] Décision prise pour Xray
+- [ ] Décision prise pour MTProxy
+- [ ] Domaines choisis (Signal, MTProxy) et SNI de camouflage Xray (`serverNames`)
 
-## Étape 6 — Signal + Certbot
-
-- [ ] Lire le dépôt officiel `signalapp/Signal-TLS-Proxy`. Il a son propre `docker-compose` avec plusieurs services (un Nginx qui gère le TLS, un relais, certbot).
-- [ ] Reprendre ces services dans **ton** compose, **sans** leurs `ports:` (c'est ton Nginx qui reçoit le 443)
-- [ ] Ajouter `signal.<domaine>` dans le `map` de Nginx → le service Signal qui gère le TLS
-- [ ] **Certbot** : le challenge HTTP-01 passe par le port **80**. Ton Nginx doit donc écouter sur 80 (bloc `http`) et servir le dossier du challenge, ou transmettre le port 80 à Certbot.
-- [ ] Un **volume partagé** pour les certificats, entre Certbot (qui écrit) et Signal (qui lit)
-- [ ] Prévoir le renouvellement automatique (Certbot qui tourne en boucle, ou une tâche planifiée)
-
-✅ Signal se connecte via le proxy et `certbot renew --dry-run` réussit.
+✅ Une fiche (hors Git) avec les domaines, les ports et où sont stockés les secrets.
 
 ---
 
-## Étape 7 — Bascule en production
+## Étape 4 — Compléter le `docker-compose.yml`
 
-C'est l'étape risquée : 5 personnes utilisent le service tous les jours.
+### Déjà fait
+- [x] Signal : `nginx-terminate`, `nginx-relay`, `certbot` (sans `ports:`, volumes dans `signal/data/`)
+- [x] Nginx principal : ports 80 et 443, `nginx.conf` monté en lecture seule, `depends_on`
+- [x] `nginx.conf` v1 : tout le 80 et le 443 vers `nginx-terminate`
 
-- [ ] Choisir un créneau calme et prévenir les utilisateurs
-- [ ] Écrire le **plan de retour arrière** *avant* de commencer (comment relancer les anciens services)
-- [ ] Arrêter les anciens services (`systemctl stop xray`, ancien compose de Signal, MTProxy)
-- [ ] `docker compose up -d` dans `~/proxy-stack`
-- [ ] Tester les trois services depuis un vrai téléphone
-- [ ] Une fois que tout marche : `systemctl disable` les anciens services pour qu'ils ne redémarrent pas au reboot
-- [ ] Vérifier UFW : seuls 80, 443 et ton port SSH sont ouverts
+### Xray
+- [ ] Choisir l'image (onglet Packages du dépôt `XTLS/Xray-core`) et l'épingler par digest
+- [ ] Monter `./xray/config.json` en lecture seule (`config.json` dans le `.gitignore`, `config.json.example` commité)
+- [ ] Noter le port de l'inbound : c'est la destination pour Nginx
 
-✅ Les trois services marchent via la nouvelle stack, et l'ancienne installation est désactivée.
+> 💡 Le SNI de Xray n'est **pas** ton domaine : c'est le domaine de camouflage (`serverNames`). Xray sera la route **`default`** de Nginx.
+
+### MTProxy
+- [ ] Choisir l'image : `telegrammessenger/proxy` ou `nineseconds/mtg` (fake-TLS)
+- [ ] Secret `ee…` dans `.env`
+- [ ] Noter le port interne
+
+### Nginx : tri par SNI
+- [ ] Ajouter `ssl_preread on;` dans le `server` du 443
+- [ ] Ajouter un `map $ssl_preread_server_name` : Signal → `nginx-terminate:443`, MTProxy → son service, `default` → Xray
+- [ ] Ajouter `resolver 127.0.0.11;` dans `stream` (obligatoire dès que `proxy_pass` utilise une variable)
+- [ ] Ajouter `xray` et `mtproxy` dans le `depends_on` de `nginx`
+
+✅ `docker compose config` ne signale aucune erreur.
 
 ---
 
-## Étape 8 — CI/CD
+## Étape 5 — Premier démarrage sur le VPS
 
-- [ ] Ajouter une étape de **validation** avant le déploiement dans [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) : `docker compose config` (avec un `.env` factice construit à partir de `.env_example`)
-- [ ] Décommenter `docker compose up -d` dans la commande SSH
-- [ ] Faire un petit changement, pousser, et vérifier que le déploiement passe
+- [ ] **DNS** : faire pointer les domaines vers l'IP du nouveau VPS
+- [ ] Cloner le dépôt sur le VPS et créer le `.env` et `xray/config.json`
+- [ ] **Premier certificat Signal** : lancer `init-certificate.sh` du dépôt Signal **avant** de démarrer le Nginx principal (il a besoin du port 80 libre). Seulement la première fois.
+- [ ] `docker compose up -d`
+- [ ] `docker compose ps` : tous les services sont `running`
+- [ ] Tester depuis un vrai téléphone : Signal, Telegram, Xray
 
-✅ Un `git push` sur `main` valide puis déploie la stack automatiquement.
+✅ Les trois proxies fonctionnent depuis un téléphone.
+
+---
+
+## Étape 6 — Donner l'accès à la famille
+
+- [ ] Envoyer les liens (Signal : `https://signal.tube/#<domaine>`, Telegram : lien `tg://proxy…`, Xray : lien VLESS)
+- [ ] Vérifier avec chaque personne que ça marche
+
+✅ Les 5 utilisateurs sont reconnectés.
+
+---
+
+## Étape 7 — Ansible : déployer la stack
+
+- [ ] Section **proxy_stack** dans le playbook : cloner le dépôt, déposer `.env` et `xray/config.json` depuis **Ansible Vault**, `docker compose up -d`
+- [ ] Tester sur un serveur jetable (une instance EC2 créée par ton projet Terraform) : un VPS vide doit devenir une stack complète avec une seule commande
+
+✅ `ansible-playbook` reconstruit un serveur complet à partir de zéro (hors certificat initial).
+
+---
+
+## Étape 8 — CI/CD + DevSecOps
+
+- [ ] Validation avant déploiement : `docker compose config` (avec un `.env` factice construit à partir de `.env_example`)
+- [ ] **gitleaks** : bloque un secret commité par erreur
+- [ ] **Trivy** : scanne les images Docker (CVE)
+- [ ] **ansible-lint** sur le playbook
+- [ ] Décommenter `docker compose up -d` dans la commande SSH, puis réactiver le workflow
+- [ ] **Dependabot** pour mettre à jour les digests des images
+
+✅ Un `git push` sur `main` vérifie, scanne puis déploie.
 
 ---
 
@@ -137,15 +157,27 @@ C'est l'étape risquée : 5 personnes utilisent le service tous les jours.
 - [ ] `security_opt: [no-new-privileges:true]` sur chaque service
 - [ ] `cap_drop: [ALL]`, puis ne rajouter que les capacités nécessaires
 - [ ] `read_only: true` quand c'est possible
-- [ ] Fixer les versions des images (pas de `:latest`)
+- [ ] Toutes les images épinglées par digest
 - [ ] Limiter la taille des logs Docker (`logging:` avec `max-size`)
 
 ✅ La stack tourne avec ces restrictions, sans régression.
 
 ---
 
-## Plus tard (déjà dans le README)
+## Étape 10 — Observabilité (avec le projet AWS)
 
-- Observabilité : Prometheus + Grafana. Grafana sera la seule partie HTTP ; une WAF y aurait du sens.
-- Logs centralisés (Loki, plus léger qu'ELK pour un petit VPS)
+- [ ] `node_exporter` + `cAdvisor` dans le compose, **sans `ports:`**
+- [ ] Un agent (Grafana Alloy) qui **envoie** les métriques (`remote_write`) vers le Prometheus de l'EC2
+- [ ] Côté AWS : Security Group ouvert **uniquement** à l'IP du VPS, géré dans Terraform
+- [ ] Seulement des métriques globales : **pas d'IP de clients**
+
+✅ Un tableau de bord Grafana affiche l'état du VPS et des conteneurs.
+
+---
+
+## Plus tard
+
+- Rôles Ansible (découper le playbook)
 - Secrets : Docker secrets, puis éventuellement Vault
+- AIOps : détection d'anomalies sur les métriques
+- `resolve` sur les upstreams Nginx, `proxy_protocol` pour Xray
