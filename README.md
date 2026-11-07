@@ -1,106 +1,173 @@
-# Secure Communication Proxies — Production VPS
+# Proxy Stack — Secure communication proxies on a Linux VPS
 
-> This is my first personal project that actually serves a real purpose. It's used every day by my family, and I keep improving it as I learn.
+> My first personal project that serves a real purpose: censorship-resistant access to **Signal**, **Telegram** and the open web for my family (5 users). The first version ran in production for more than 6 months. I'm now rebuilding it as a reproducible, infrastructure-as-code stack.
 
-A set of secure communication proxies running on a Linux VPS (OVH). The services are containerized (or run as hardened system services), sit behind an Nginx reverse proxy with TLS, and have been up in production for more than 6 months for 5 users.
+## Status
 
-## Services
+| Part | State |
+|---|---|
+| v1 (hand-built server) | ✅ Ran in production for 6+ months, now archived as an OVH snapshot |
+| Server configuration with **Ansible** (Docker, UFW, fail2ban) | ✅ Applied to the new VPS |
+| **Nginx** single entry point (`stream`, ports 80/443) | ✅ Written |
+| **Signal** TLS Proxy in the compose stack | ✅ Written, waiting for its domain and certificate on the new VPS |
+| **Xray** (VLESS-REALITY) and **Telegram** (MTProxy) | 🚧 In progress |
+| SNI routing between the three services | 🚧 In progress (needs Xray and MTProxy) |
+| CI/CD deployment with GitHub Actions | 🚧 Pipeline exists; `docker compose up` is not enabled yet |
 
-| Service         | Setup                                    | Purpose                   |
-|-----------------|------------------------------------------|---------------------------|
-| Signal Proxy    | Docker Compose + Nginx + TLS             | Secure messaging relay    |
-| Telegram Proxy  | Docker container (official MTProto image)| Encrypted messaging relay |
-| Xray (Reality)  | systemd service                          | Secure tunneling proxy    |
+---
 
-## Stack
+## Where I started (v1)
 
-- OS: Ubuntu (OVH VPS)
-- Signal and Telegram: Docker Compose, Nginx, Let's Encrypt (TLS)
-- Xray: installed as a systemd service
-- DNS: custom domain with an A record
-- SSH: key-only access on a custom port
+I set up each service on its own, the way its documentation suggested, as I needed it:
 
-
-## What I did
-
-- Provisioned and configured the VPS (Ubuntu, OVH)
-- Set up DNS (A record, subdomain)
-- Issued and configured TLS certificates with Let's Encrypt
-- Hardened SSH access (key-only authentication, custom port)
-- Kept it running and monitored it in production for 6+ months
-
-## Current architecture
+| Service | How it was installed |
+|---|---|
+| Signal TLS Proxy | Docker Compose (official repository), with its own Nginx and Let's Encrypt |
+| Xray (VLESS-REALITY) | systemd service, installed with the official script |
+| Telegram MTProxy | Docker container, on a separate port |
 
 ```
-                Production VPS
-                       │
-        ┌──────────────┼──────────────┐
-        │              │              │
-    Port 443       Port 443       Port 8888
-   (active OR)   (active OR)      (always)
-        │              │              │
-        ▼              ▼              ▼
-   Signal Proxy   Xray Reality   Telegram MTProto
-   (Docker)       (systemd)      (Docker)
-```
-
-## Security measures
-
-- SSH restricted to key-based authentication only
-- Custom SSH port (non-default)
-- TLS certificates with Let's Encrypt (automated by the Signal proxy setup)
-- Isolated Docker network for communication between containers
-- Exposed ports: 80 (TLS renewal), 443 (HTTPS), 8888 (Telegram), SSH on a custom port
-
-## Design notes
-
-This is a personal project for my family (5 users). I focused on the essentials: SSH hardening (key-only, custom port) and TLS on all the web services. For this use case, the security level matches the actual risk.
-
-I set the services up one at a time, as I needed them. That's why they don't share a single orchestration yet. The next section is how I want to rebuild it into a cleaner, more production-like stack.
-
-## What I want to improve next
-
-Right now the setup is a mix of Docker and systemd that I configured by hand. The goal for the next version is to turn it into a single, reproducible deployment, closer to what I'd set up in a company.
-
-What I want to add:
-
-- A single `docker-compose.yml` that orchestrates all the services, instead of the current mix.
-- Nginx as the single entry point on port 443, routing each connection by SNI (`stream` module + `ssl_preread`) without decrypting it. The proxy containers are no longer exposed directly.
-- No WAF in front of the proxies, on purpose: a WAF like ModSecurity inspects HTTP requests, but this traffic is encrypted tunnels (REALITY, MTProto, Signal's own TLS) that Nginx must pass through untouched. Connection limits (`limit_conn`) handle abuse at the stream level instead. A WAF would only make sense for a future web UI such as Grafana.
-- Centralized logging (ELK or Loki) so I can audit and investigate incidents.
-- Monitoring and alerting (Prometheus and Grafana) to catch anomalies and attacks in real time.
-- Tighter network rules: restrict sensitive ports by IP and segment the Docker networks per service.
-- TLS renewal handled by its own certbot container, for the Signal certificate only (Xray REALITY and MTProxy fake-TLS don't need one).
-- Proper secrets management (Docker secrets or Vault) instead of plain config and env files.
-
-Target architecture I'm aiming for:
-
-```
-                          Internet
+                    VPS (configured by hand)
                              │
-                             ▼
-                    ┌─────────────────┐
-                    │      Nginx      │   SNI routing, TLS passthrough,
-                    │    (stream)     │   connection limits (limit_conn)
-                    └────────┬────────┘
-                             │   (isolated Docker network)
         ┌────────────────────┼────────────────────┐
-        ▼                    ▼                     ▼
-   Signal Proxy         Telegram Proxy          Xray
-   (container)          (container)          (container)
-        │                    │                     │
-        └────────────────────┴─────────┬───────────┘
-                                        ▼
-                          ┌──────────────────────────┐
-                          │  Observability sidecars  │
-                          │  Prometheus, Grafana     │
-                          │  Centralized logs (ELK)  │
-                          └──────────────────────────┘
-
-   All services in one docker-compose.yml
-   Secrets injected via Docker secrets or Vault
-   Only Nginx publishes ports (80/443); the proxies stay on the internal network
-   A certbot container renews the Signal TLS certificate
+        │                    │                    │
+    Port 443             Port 443             Port 8888
+  (one OR the other)  (one OR the other)       (always)
+        │                    │                    │
+        ▼                    ▼                    ▼
+   Signal Proxy         Xray REALITY       Telegram MTProxy
+     (Docker)            (systemd)            (Docker)
 ```
 
-I built it the current way because I needed something working and secure enough, fast. Cleaning it up into one IaC-managed stack with a single entry point and real monitoring is the obvious next step, both to improve the design and to practice the production patterns I want to work with.
+It worked, and it was secured (key-only SSH on a custom port, TLS with Let's Encrypt). But it had real limits:
+
+- **Signal and Xray both needed port 443**, so only one of them could run at a time.
+- **Three installation methods** (Docker Compose, systemd, a lone container) to maintain and remember.
+- **Nothing was reproducible.** The configuration only existed on the server. When I decided to rebuild, I had to take a snapshot and list by hand what was running.
+
+## Current architecture (v2)
+
+The new VPS starts empty. Everything on it is described in this repository.
+
+```
+                                  Internet
+                    │                                      │
+          port 443  │  proxy traffic          port 80      │  Let's Encrypt only
+                    ▼                                      ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Nginx (stream)                                                               │
+│                                                                              │
+│  443: reads the SNI, never decrypts      80: forwards everything as-is       │
+└──────────┬──────────────────┬─────────────────┬──────────────────┬───────────┘
+           │                  │                 │                  │
+           │ SNI =            │ SNI =           │ any other SNI    │
+           │ signal.<domain>  │ fake-TLS domain │ (default)        │
+           ▼                  ▼                 ▼                  ▼
+   nginx-terminate:443    MTProxy 🚧      Xray REALITY 🚧    nginx-terminate:80
+   (removes outer TLS)                                             │
+           │                                                       │ /.well-known/acme-challenge/
+           ▼                                                       ▼
+      nginx-relay ──▶ Signal servers                            certbot
+                                                    (renews the Signal certificate)
+
+   ── internal Docker network: only Nginx publishes ports ──
+```
+
+- **Port 443** carries the proxy traffic. Nginx sorts it by SNI and passes it on still encrypted.
+- **Port 80** is used **only** by Let's Encrypt to renew the Signal certificate. Everything else on port 80 gets a 404 from `nginx-terminate`. There is no website to redirect to HTTPS.
+
+| Layer | Tool |
+|---|---|
+| Server configuration | **Ansible**: Docker, UFW firewall, fail2ban |
+| Services | **Docker Compose**: one file for the whole stack |
+| Entry point | **Nginx** in `stream` mode, with SNI routing and TLS passthrough |
+| Deployment | **GitHub Actions** over SSH, with a dedicated deploy key |
+
+### How the traffic is routed
+
+The first message of every TLS connection contains, in clear text, the name of the server the client wants to reach (the **SNI**). Nginx reads only that name (`ssl_preread`) and forwards the still-encrypted connection to the right container:
+
+| Service | SNI sent by the client | Destination |
+|---|---|---|
+| Signal | my own subdomain | `nginx-terminate` |
+| Telegram MTProxy | the domain encoded in the fake-TLS secret (`ee…`) | MTProxy container |
+| Xray REALITY | the camouflage domain (`serverNames`), **not** mine | default route |
+
+Xray is the **default** route on purpose: when REALITY receives a connection that is not a real client, it forwards it to the real camouflage website. A scanner probing the server therefore sees an ordinary site.
+
+### Why Signal goes through two Nginx containers
+
+A Signal connection is wrapped in **two TLS layers**. The outer layer goes to my domain and hides the fact that the user is talking to Signal (that is what defeats SNI-based blocking). The inner layer goes from the phone straight to Signal's servers.
+
+```
+Phone ══TLS #1══▶ nginx-terminate ──▶ nginx-relay ══TLS #2 (untouched)══▶ Signal
+                  (my certificate)    (reads the inner SNI,
+                                       allows only Signal hosts)
+```
+
+The server removes the outer layer only. It can never read messages.
+
+---
+
+## Design decisions
+
+- **`stream`, not `http`.** These are encrypted tunnels, not web requests. Nginx must not decrypt them: REALITY and Signal need the original TLS handshake.
+- **No WAF, on purpose.** I used ModSecurity in a previous web project, where it made sense. A WAF inspects HTTP requests, and here there is nothing to inspect. Abuse is limited at the connection level instead (`limit_conn`). A WAF would only make sense for a future web UI such as Grafana.
+- **One entry point.** Only Nginx publishes ports. Docker bypasses UFW for published ports, so keeping a single published service keeps the firewall meaningful.
+- **Images pinned by digest** (`@sha256:…`), so a moved tag can never silently change what runs.
+- **No connection logs.** The users rely on this service for their privacy (same choice as the Signal proxy: `access_log off`).
+- **Secrets stay out of Git.** IP, SSH port and keys live in `ansible/inventory.ini` and `.env`, which are git-ignored. The playbook only references them (`{{ ansible_port }}`).
+- **Right-sized.** One VPS doesn't need Kubernetes or Terraform. I use Terraform and Ansible on AWS in another project; here the value is in Ansible and Compose.
+
+## Server configuration (Ansible)
+
+The VPS is never changed by hand: every change goes through the playbook and is committed.
+
+| Section | What it does |
+|---|---|
+| Docker | Installs Docker and the Compose plugin; adds the admin user to the `docker` group |
+| UFW | Opens the SSH port, 80 and 443, **then** enables the firewall (deny by default) |
+| fail2ban | Protects SSH, configured for the custom port (otherwise bans would hit port 22) |
+
+```bash
+ansible-playbook -i ansible/inventory.ini ansible/playbook.yml --check --diff   # dry run
+ansible-playbook -i ansible/inventory.ini ansible/playbook.yml                  # apply
+```
+
+## Repository layout
+
+```
+.
+├── docker-compose.yml        # the whole stack
+├── nginx/nginx.conf          # main entry point (stream, SNI routing)
+├── signal/                   # Signal TLS Proxy configs (+ upstream MIT license)
+├── xray/  mtproxy/           # 🚧
+├── ansible/                  # server configuration
+├── .github/workflows/        # deployment pipeline
+└── docs/                     # roadmap and technical notes
+```
+
+## Next steps
+
+- Add Xray and MTProxy, then switch Nginx to SNI routing
+- Issue the Signal certificate on the new VPS and reconnect the users
+- Deploy the stack with Ansible (secrets from Ansible Vault)
+- CI: validate the compose file, scan for leaked secrets (gitleaks) and vulnerable images (Trivy), then deploy
+- Container hardening (`no-new-privileges`, dropped capabilities, read-only filesystems)
+- Monitoring: ship metrics to my existing Prometheus/Grafana stack on AWS, with no client IPs collected
+
+Full plan: [docs/roadmap.md](docs/roadmap.md)
+
+## Documentation
+
+- [docs/roadmap.md](docs/roadmap.md): step-by-step plan
+- [docs/ansible.md](docs/ansible.md): server configuration and pitfalls
+- [docs/nginx.md](docs/nginx.md): Nginx blocks, `http` vs `stream`
+- [docs/signal.md](docs/signal.md): how the Signal TLS Proxy works and how it was integrated
+- [docs/tls.md](docs/tls.md): certificates and private keys, simply explained
+
+*(The technical notes in `docs/` are written in French.)*
+
+## Credits
+
+The Signal configuration comes from [signalapp/Signal-TLS-Proxy](https://github.com/signalapp/Signal-TLS-Proxy) (MIT license, kept in [`signal/LICENSE`](signal/LICENSE)).
