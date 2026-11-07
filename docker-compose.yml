@@ -1,5 +1,18 @@
 services:
   
+
+  # MAIN NGINX (ENTER POINT)
+
+  nginx:
+    image: nginx:stable-alpine@sha256:0e52bd054126cdc040b1276c0af347aeb02a41b9cfe305d6094767ac30e97949
+    restart: unless-stopped
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "443:443"
+      - "80:80"
+    depends_on:
+      - nginx-terminate
   
   
   
