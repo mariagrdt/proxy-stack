@@ -57,15 +57,22 @@ The new VPS starts empty. Everything on it is described in this repository.
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ Nginx (stream)                                                               │
 │                                                                              │
-│  443: reads the SNI, never decrypts      80: forwards everything as-is       │
+│  443: reads the SNI, never decrypts      80: no sorting, passes everything   │
 └──────────┬──────────────────┬─────────────────┬──────────────────┬───────────┘
            │                  │                 │                  │
            │ SNI =            │ SNI =           │ any other SNI    │
            │ signal.<domain>  │ fake-TLS domain │ (default)        │
-           ▼                  ▼                 ▼                  ▼
-   nginx-terminate:443    MTProxy 🚧      Xray REALITY 🚧    nginx-terminate:80
-   (removes outer TLS)                                             │
-           │                                                       │ /.well-known/acme-challenge/
+           │                  ▼                 ▼                  │
+           │             MTProxy 🚧       Xray REALITY 🚧          │
+           │                                                       │
+           ▼                                                       ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ nginx-terminate  (one container, two ports)                                  │
+│                                                                              │
+│  :443  removes the outer TLS layer        :80  domain check → certbot,       │
+│        (with my certificate)                   anything else → 404           │
+└──────────┬───────────────────────────────────────────────────────┬───────────┘
+           │                                                       │
            ▼                                                       ▼
       nginx-relay ──▶ Signal servers                            certbot
                                                     (renews the Signal certificate)
@@ -74,7 +81,7 @@ The new VPS starts empty. Everything on it is described in this repository.
 ```
 
 - **Port 443** carries the proxy traffic. Nginx sorts it by SNI and passes it on still encrypted.
-- **Port 80** is used **only** by Let's Encrypt to renew the Signal certificate. Everything else on port 80 gets a 404 from `nginx-terminate`. There is no website to redirect to HTTPS.
+- **Port 80** is used **only** by Let's Encrypt to renew the Signal certificate. Any other request on port 80 gets a 404. There is no website to redirect to HTTPS.
 
 | Layer | Tool |
 |---|---|
