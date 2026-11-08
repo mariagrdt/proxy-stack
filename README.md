@@ -59,9 +59,10 @@ The new VPS starts empty. Everything on it is described in this repository.
                       │                          │
                       ▼                          ▼
    ┌────────────────────────────────────────────────────────┐
-   │                      Nginx (stream)                    │
+   │                 Nginx (stream + http)                  │
    │      only container reachable from the Internet        │
-   │      reads the SNI, never decrypts                     │
+   │      443: reads the SNI, never decrypts                │
+   │      80:  domain check → certbot, the rest → 404       │
    └─────┬──────────────┬──────────────┬──────────────┬─────┘
          │              │              │              │
   signal.<domain>  fake-TLS domain  any other     port 80
@@ -70,9 +71,9 @@ The new VPS starts empty. Everything on it is described in this repository.
    ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐
    │  Signal   │  │  MTProxy  │  │   Xray    │  │  certbot  │
    │  proxy    │  │           │  │  REALITY  │  │           │
-   │           │  │           │  │  (to do)  │  │ (via the  │
-   │           │  │           │  │           │  │  Signal   │
-   │           │  │           │  │           │  │  proxy)   │
+   │           │  │           │  │  (to do)  │  │ (renews   │
+   │           │  │           │  │           │  │  the TLS  │
+   │           │  │           │  │           │  │  cert.)   │
    └─────┬─────┘  └───────────┘  └───────────┘  └───────────┘
          │
          ▼
