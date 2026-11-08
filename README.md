@@ -8,8 +8,8 @@
 |---|---|
 | v1 (hand-built server) | ✅ Ran in production for 6+ months, now archived as an OVH snapshot |
 | Server configuration with **Ansible** (Docker, UFW, fail2ban) | ✅ Applied to the new VPS |
-| **Nginx** single entry point (`stream`, ports 80/443) | ✅ Written |
-| **Signal** TLS Proxy in the compose stack | ✅ Written, waiting for its domain and certificate on the new VPS |
+| **Nginx** single entry point (`stream` on 443, `http` on 80) | ✅ Running |
+| **Signal** TLS Proxy in the compose stack | ✅ **Running** on the new VPS (Let's Encrypt certificate, tested from a phone) |
 | **Xray** (VLESS-REALITY) and **Telegram** (MTProxy) | 🚧 In progress |
 | SNI routing between the three services | 🚧 In progress (needs Xray and MTProxy) |
 | CI/CD deployment with GitHub Actions | 🚧 Pipeline exists; `docker compose up` is not enabled yet |
@@ -148,31 +148,18 @@ ansible-playbook -i ansible/inventory.ini ansible/playbook.yml                  
 ├── signal/                   # Signal TLS Proxy configs (+ upstream MIT license)
 ├── xray/  mtproxy/           # 🚧
 ├── ansible/                  # server configuration
-├── .github/workflows/        # deployment pipeline
-└── docs/                     # roadmap and technical notes
+└── .github/workflows/        # deployment pipeline
 ```
 
 ## Next steps
 
 - Add Xray and MTProxy, then switch Nginx to SNI routing
-- Issue the Signal certificate on the new VPS and reconnect the users
+- Reconnect the users to the new Signal proxy
 - Deploy the stack with Ansible (secrets from Ansible Vault)
 - CI: validate the compose file, scan for leaked secrets (gitleaks) and vulnerable images (Trivy), then deploy
 - Container hardening (`no-new-privileges`, dropped capabilities, read-only filesystems)
 - Monitoring: ship metrics to my existing Prometheus/Grafana stack on AWS, with no client IPs collected
 
-Full plan: [docs/roadmap.md](docs/roadmap.md)
-
-## Documentation
-
-- [docs/roadmap.md](docs/roadmap.md): step-by-step plan
-- [docs/ansible.md](docs/ansible.md): server configuration and pitfalls
-- [docs/sni.md](docs/sni.md): what the SNI is and how traffic flows, simply explained
-- [docs/nginx.md](docs/nginx.md): Nginx blocks, `http` vs `stream`
-- [docs/signal.md](docs/signal.md): how the Signal TLS Proxy works and how it was integrated
-- [docs/tls.md](docs/tls.md): certificates and private keys, simply explained
-
-*(The technical notes in `docs/` are written in French.)*
 
 ## Credits
 

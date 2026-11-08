@@ -5,3 +5,4 @@ certs/
 secrets/
 certbot/
 ansible/inventory.ini
+docs/
