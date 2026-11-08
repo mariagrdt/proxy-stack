@@ -117,11 +117,10 @@ The server removes the outer layer only. It can never read messages.
 ## Design decisions
 
 - **`stream`, not `http`.** These are encrypted tunnels, not web requests. Nginx must not decrypt them: REALITY and Signal need the original TLS handshake.
-- **No WAF, on purpose.** I used ModSecurity in a previous web project, where it made sense. A WAF inspects HTTP requests, and here there is nothing to inspect. Abuse is limited at the connection level instead (`limit_conn`). A WAF would only make sense for a future web UI such as Grafana.
 - **One entry point.** Only Nginx publishes ports. Docker bypasses UFW for published ports, so keeping a single published service keeps the firewall meaningful.
 - **Images pinned by digest** (`@sha256:…`), so a moved tag can never silently change what runs.
 - **No connection logs.** The users rely on this service for their privacy (same choice as the Signal proxy: `access_log off`).
-- **Secrets stay out of Git.** IP, SSH port and keys live in `ansible/inventory.ini` and `.env`, which are git-ignored. The playbook only references them (`{{ ansible_port }}`).
+- **Secrets stay out of Git.** The IP and SSH port live in `ansible/inventory.ini` (git-ignored). The MTProxy secret and the domains (including the camouflage domain, which must stay private) live in an **Ansible Vault** file, encrypted with AES-256. Ansible writes them to a git-ignored `.env` on the server; the compose file and the Nginx template only contain `${VARIABLES}`.
 - **Right-sized.** One VPS doesn't need Kubernetes or Terraform. I use Terraform and Ansible on AWS in another project; here the value is in Ansible and Compose.
 
 ## Server configuration (Ansible)
@@ -133,11 +132,16 @@ The VPS is never changed by hand: every change goes through the playbook and is 
 | Docker | Installs Docker and the Compose plugin; adds the admin user to the `docker` group |
 | UFW | Opens the SSH port, 80 and 443, **then** enables the firewall (deny by default) |
 | fail2ban | Protects SSH, configured for the custom port (otherwise bans would hit port 22) |
+| Secrets | Writes `.env` on the server from the encrypted vault (mode `0600`, `no_log` so values never appear in the output) |
 
 ```bash
-ansible-playbook -i ansible/inventory.ini ansible/playbook.yml --check --diff   # dry run
-ansible-playbook -i ansible/inventory.ini ansible/playbook.yml                  # apply
+ansible-playbook -i ansible/inventory.ini ansible/playbook.yml --check --diff --ask-vault-pass   # dry run
+ansible-playbook -i ansible/inventory.ini ansible/playbook.yml --ask-vault-pass                  # apply
 ```
+
+How secrets flow: **vault** (encrypted, on my machine) → decrypted **in memory** by Ansible → **`.env`** on the server → **Docker Compose** substitutes `${…}` in the compose file → the **Nginx image** fills its config template at startup.
+
+For now I type the vault password at each run (`--ask-vault-pass`). That's fine because the playbook only runs when the server configuration or a secret changes, not on every deployment. Next, I want to automate it with a small `vault_password_file` script that reads the password from the macOS Keychain, so it is never typed or stored in plain text, plus an `ansible.cfg` to drop the repeated flags.
 
 ## Repository layout
 
@@ -155,7 +159,8 @@ ansible-playbook -i ansible/inventory.ini ansible/playbook.yml                  
 
 - Add Xray and MTProxy, then switch Nginx to SNI routing
 - Reconnect the users to the new Signal proxy
-- Deploy the stack with Ansible (secrets from Ansible Vault)
+- Deploy the stack with Ansible (clone, first certificate, `docker compose up`)
+- Read the vault password from the macOS Keychain through a `vault_password_file` script instead of typing it
 - CI: validate the compose file, scan for leaked secrets (gitleaks) and vulnerable images (Trivy), then deploy
 - Container hardening (`no-new-privileges`, dropped capabilities, read-only filesystems)
 - Monitoring: ship metrics to my existing Prometheus/Grafana stack on AWS, with no client IPs collected

@@ -21,10 +21,20 @@ http {
 }
 
 stream {
+    
+    # DNS of Docker 
+    resolver 127.0.0.11 valid=5s;
+
+    map $ssl_preread_server_name $name {
+        ${SIGNAL_DOMAIN}        nginx-terminate:443;
+        ${MTPROXY_DOMAIN}       mtproxy:3128;
+        default                 nginx-terminate:443;
+    }
 
     # Port 443 (all other connexions)
     server {
         listen 443;
-        proxy_pass nginx-terminate:443;
+        proxy_pass $name;
+        ssl_preread on;
     }
 }

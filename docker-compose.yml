@@ -7,13 +7,18 @@ services:
     image: nginx:stable-alpine@sha256:0e52bd054126cdc040b1276c0af347aeb02a41b9cfe305d6094767ac30e97949
     restart: unless-stopped
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/nginx.conf.template:/etc/nginx/templates/nginx.conf:ro
+    environment:
+      NGINX_EVSUBST_OUTPUT_DIR: /etc/nginx
+      SIGNAL_DOMAIN: ${SIGNAL_DOMAIN}
+      MTPROXY_DOMAIN: ${MTPROXY_DOMAIN}
     ports:
       - "443:443"
       - "80:80"
     depends_on:
       - certbot
       - nginx-terminate
+      - mtproxy
 
 # CERTIFICATES (Let's Encrypt, shared)
 
@@ -25,6 +30,12 @@ services:
     entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
   
   
+  # CONFIG MTPROXY (Telegram)
+
+  mtproxy:
+    image: nineseconds/mtg@sha256:9553495b5216cbe6b238e88ce8a3d43ef582e4dc45fcdd7a14d54497500f5d4f
+    restart: unless-stopped
+    command: simple-run -i prefer-ipv4 0.0.0.0:3128 ${MTG_SECRET}
   
   # CONFIG SIGNAL
 

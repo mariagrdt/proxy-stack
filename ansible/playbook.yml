@@ -83,6 +83,18 @@
       name: fail2ban
       state: started
       enabled: yes
+  
+  - name: Write .env file
+    copy:
+      dest: /home/ubuntu/proxy-stack/.env
+      content: |
+        MTG_SECRET={{ vault_mtg_secret }}
+        SIGNAL_DOMAIN={{ vault_signal_domain }}
+        MTPROXY_DOMAIN={{ vault_mtproxy_domain}}
+      owner: ubuntu
+      group: ubuntu
+      mode: "0600"
+    no_log: true # mask the secret
 
   handlers:
   - name: Restart fail2ban
