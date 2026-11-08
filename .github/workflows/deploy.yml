@@ -6,7 +6,17 @@ on:
 
 
 jobs:
+  validate: 
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Check docker-compose.yml
+        run:  docker compose --env-file .env_example config --quiet
+
   deploy:
+    needs: validate
     runs-on: ubuntu-latest
     steps:
       - name: Preparing the key
