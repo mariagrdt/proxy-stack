@@ -7,9 +7,9 @@ services:
     image: nginx:stable-alpine@sha256:0e52bd054126cdc040b1276c0af347aeb02a41b9cfe305d6094767ac30e97949
     restart: unless-stopped
     volumes:
-      - ./nginx/nginx.conf.template:/etc/nginx/templates/nginx.conf:ro
+      - ./nginx/nginx.conf.template:/etc/nginx/templates/nginx.conf.template:ro
     environment:
-      NGINX_EVSUBST_OUTPUT_DIR: /etc/nginx
+      NGINX_ENVSUBST_OUTPUT_DIR: /etc/nginx
       SIGNAL_DOMAIN: ${SIGNAL_DOMAIN}
       MTPROXY_DOMAIN: ${MTPROXY_DOMAIN}
     ports:
