@@ -3,5 +3,5 @@
 *.key
 certs/
 secrets/
-signal/data/certbot/
+certbot/
 ansible/inventory.ini

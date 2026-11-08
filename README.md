@@ -50,38 +50,36 @@ It worked, and it was secured (key-only SSH on a custom port, TLS with Let's Enc
 The new VPS starts empty. Everything on it is described in this repository.
 
 ```
-                                  Internet
-                    │                                      │
-          port 443  │  proxy traffic          port 80      │  Let's Encrypt only
-                    ▼                                      ▼
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ Nginx (stream)                                                               │
-│                                                                              │
-│  443: reads the SNI, never decrypts      80: no sorting, passes everything   │
-└──────────┬──────────────────┬─────────────────┬──────────────────┬───────────┘
-           │                  │                 │                  │
-           │ SNI =            │ SNI =           │ any other SNI    │
-           │ signal.<domain>  │ fake-TLS domain │ (default)        │
-           │                  ▼                 ▼                  │
-           │             MTProxy 🚧       Xray REALITY 🚧          │
-           │                                                       │
-           ▼                                                       ▼
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ nginx-terminate  (one container, two ports)                                  │
-│                                                                              │
-│  :443  removes the outer TLS layer        :80  domain check → certbot,       │
-│        (with my certificate)                   anything else → 404           │
-└──────────┬───────────────────────────────────────────────────────┬───────────┘
-           │                                                       │
-           ▼                                                       ▼
-      nginx-relay ──▶ Signal servers                            certbot
-                                                    (renews the Signal certificate)
-
-   ── internal Docker network: only Nginx publishes ports ──
+                               Internet
+                      │                          │
+                  port 443                    port 80
+               proxy traffic            Let's Encrypt only
+                      │                          │
+                      ▼                          ▼
+   ┌────────────────────────────────────────────────────────┐
+   │                      Nginx (stream)                    │
+   │      only container reachable from the Internet        │
+   │      reads the SNI, never decrypts                     │
+   └─────┬──────────────┬──────────────┬──────────────┬─────┘
+         │              │              │              │
+  signal.<domain>  fake-TLS domain  any other     port 80
+         │              │              │              │
+         ▼              ▼              ▼              ▼
+   ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐
+   │  Signal   │  │  MTProxy  │  │   Xray    │  │  certbot  │
+   │  proxy    │  │           │  │  REALITY  │  │           │
+   │           │  │  (to do)  │  │  (to do)  │  │ (via the  │
+   │           │  │           │  │           │  │  Signal   │
+   │           │  │           │  │           │  │  proxy)   │
+   └─────┬─────┘  └───────────┘  └───────────┘  └───────────┘
+         │
+         ▼
+   Signal servers
 ```
 
-- **Port 443** carries the proxy traffic. Nginx sorts it by SNI and passes it on still encrypted.
+- **Port 443** carries the proxy traffic. Nginx sorts it by SNI (the domain name the client asks for) and passes it on still encrypted.
 - **Port 80** is used **only** by Let's Encrypt to renew the Signal certificate. Any other request on port 80 gets a 404. There is no website to redirect to HTTPS.
+- The "Signal proxy" box is two containers (`nginx-terminate` and `nginx-relay`), detailed [below](#why-signal-goes-through-two-nginx-containers).
 
 | Layer | Tool |
 |---|---|
@@ -169,6 +167,7 @@ Full plan: [docs/roadmap.md](docs/roadmap.md)
 
 - [docs/roadmap.md](docs/roadmap.md): step-by-step plan
 - [docs/ansible.md](docs/ansible.md): server configuration and pitfalls
+- [docs/sni.md](docs/sni.md): what the SNI is and how traffic flows, simply explained
 - [docs/nginx.md](docs/nginx.md): Nginx blocks, `http` vs `stream`
 - [docs/signal.md](docs/signal.md): how the Signal TLS Proxy works and how it was integrated
 - [docs/tls.md](docs/tls.md): certificates and private keys, simply explained
