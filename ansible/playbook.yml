@@ -83,6 +83,15 @@
       name: fail2ban
       state: started
       enabled: yes
+
+# ------ 5. Automatic deploy of the stack on VPS after every changement
+  
+  - name: Clone the repository
+    ansible.builtin.git:
+      repo: https://github.com/mariagrdt/proxy-stack.git
+      dest: /home/ubuntu/proxy-stack
+      version: main
+    become_user: ubuntu
   
   - name: Write .env file
     copy:
@@ -95,6 +104,51 @@
       group: ubuntu
       mode: "0600"
     no_log: true # mask the secret
+  
+  - name: Create certbot config directory
+    ansible.builtin.file: 
+      path: /home/ubuntu/proxy-stack/certbot/conf
+      state: directory
+      mode: "0755"
+  
+
+  - name: Download recommended TLS settings
+    ansible.builtin.get_url:
+      url: "{{ item.url }}" # replaced by values down the "loop:"
+      dest: "/home/ubuntu/proxy-stack/certbot/conf/{{ item.name }}"
+      mode: "0644"
+    loop: 
+      - name: options-ssl-nginx.conf
+        url: https://raw.githubusercontent.com/certbot/certbot/refs/heads/main/certbot/src/certbot/_internal/plugins/nginx/tls_configs/options-ssl-nginx.conf
+      - name: ssl-dhparams.pem    
+        url: https://raw.githubusercontent.com/certbot/certbot/main/certbot/src/certbot/ssl-dhparams.pem
+  
+
+  - name: Get the first Signal certificate (only once)
+    ansible.builtin.command:
+      cmd: >
+        docker compose run --rm -p 80:80
+        --entrypoint certbot certbot
+        certonly --standalone --register-unsafely-without-email
+        -d {{ vault_signal_domain }} --agree-tos
+      chdir: /home/ubuntu/proxy-stack
+      creates: "/home/ubuntu/proxy-stack/certbot/conf/live/{{ vault_signal_domain }}/fullchain.pem" #if the file exists, do nothing ( don't recreate the certificate)
+
+    
+
+  - name: Make Signal use the certificate of our domain
+    ansible.builtin.file:
+      src: "/etc/letsencrypt/live/{{ vault_signal_domain }}/"
+      dest: /home/ubuntu/proxy-stack/certbot/conf/active
+      state: link
+      force: yes
+ 
+  - name: Start the stack
+    ansible.builtin.command:
+      cmd: docker compose up -d
+      chdir: /home/ubuntu/proxy-stack
+    become_user: ubuntu
+
 
   handlers:
   - name: Restart fail2ban
