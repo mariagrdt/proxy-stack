@@ -8,11 +8,13 @@
 |---|---|
 | v1 (hand-built server) | ✅ Ran in production for 6+ months, now archived as an OVH snapshot |
 | Server configuration with **Ansible** (Docker, UFW, fail2ban) | ✅ Applied to the new VPS |
-| **Nginx** single entry point (`stream` on 443, `http` on 80) | ✅ Running |
+| **Nginx** single entry point (`stream` on 443, `http` on 80) | ✅ Running, config generated from a template (no domain in the repo) |
 | **Signal** TLS Proxy in the compose stack | ✅ **Running** on the new VPS (Let's Encrypt certificate, tested from a phone) |
-| **Xray** (VLESS-REALITY) and **Telegram** (MTProxy) | 🚧 In progress |
-| SNI routing between the three services | 🚧 In progress (needs Xray and MTProxy) |
-| CI/CD deployment with GitHub Actions | 🚧 Pipeline exists; `docker compose up` is not enabled yet |
+| **Telegram** MTProxy (fake-TLS, mtg) | ✅ Running on the VPS, phone test in progress |
+| SNI routing on port 443 | ✅ Signal and Telegram share port 443 |
+| Secrets with **Ansible Vault** | ✅ Secret and domains encrypted, written to `.env` by Ansible |
+| CI/CD with GitHub Actions | 🚧 Validates the compose file, then deploys over SSH (`git pull` + `docker compose up`); first runs in progress |
+| **Xray** (VLESS-REALITY) | 🚧 Next |
 
 ---
 
@@ -68,7 +70,7 @@ The new VPS starts empty. Everything on it is described in this repository.
    ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐
    │  Signal   │  │  MTProxy  │  │   Xray    │  │  certbot  │
    │  proxy    │  │           │  │  REALITY  │  │           │
-   │           │  │  (to do)  │  │  (to do)  │  │ (via the  │
+   │           │  │           │  │  (to do)  │  │ (via the  │
    │           │  │           │  │           │  │  Signal   │
    │           │  │           │  │           │  │  proxy)   │
    └─────┬─────┘  └───────────┘  └───────────┘  └───────────┘
@@ -86,7 +88,8 @@ The new VPS starts empty. Everything on it is described in this repository.
 | Server configuration | **Ansible**: Docker, UFW firewall, fail2ban |
 | Services | **Docker Compose**: one file for the whole stack |
 | Entry point | **Nginx** in `stream` mode, with SNI routing and TLS passthrough |
-| Deployment | **GitHub Actions** over SSH, with a dedicated deploy key |
+| Secrets | **Ansible Vault** (encrypted) → `.env` on the server |
+| Deployment | **GitHub Actions**: validate, then deploy over SSH with a dedicated deploy key |
 
 ### How the traffic is routed
 
@@ -119,8 +122,10 @@ The server removes the outer layer only. It can never read messages.
 - **`stream`, not `http`.** These are encrypted tunnels, not web requests. Nginx must not decrypt them: REALITY and Signal need the original TLS handshake.
 - **One entry point.** Only Nginx publishes ports. Docker bypasses UFW for published ports, so keeping a single published service keeps the firewall meaningful.
 - **Images pinned by digest** (`@sha256:…`), so a moved tag can never silently change what runs.
-- **No connection logs.** The users rely on this service for their privacy (same choice as the Signal proxy: `access_log off`).
+- **No connection logs on the proxy traffic.** The users rely on this service for their privacy (same choice as the Signal proxy: `access_log off` on port 443). Port 80 still logs HTTP requests (mostly Internet scanners); turning that off too is on the list.
 - **Secrets stay out of Git.** The IP and SSH port live in `ansible/inventory.ini` (git-ignored). The MTProxy secret and the domains (including the camouflage domain, which must stay private) live in an **Ansible Vault** file, encrypted with AES-256. Ansible writes them to a git-ignored `.env` on the server; the compose file and the Nginx template only contain `${VARIABLES}`.
+- **Domains out of the repo.** The camouflage domain must stay private: knowing it would reveal which connections are Telegram. The Nginx config is a template (`nginx.conf.template`) that the official Nginx image fills at startup (`envsubst`) from environment variables, themselves coming from the vault.
+- **Validate before deploying.** The pipeline first checks the compose file on GitHub's runners; the deploy job only runs if that succeeds (`needs: validate`), and `git pull --ff-only` stops instead of merging if the server copy has diverged.
 - **Right-sized.** One VPS doesn't need Kubernetes or Terraform. I use Terraform and Ansible on AWS in another project; here the value is in Ansible and Compose.
 
 ## Server configuration (Ansible)
@@ -148,20 +153,23 @@ For now I type the vault password at each run (`--ask-vault-pass`). That's fine 
 ```
 .
 ├── docker-compose.yml        # the whole stack
-├── nginx/nginx.conf          # main entry point (stream, SNI routing)
+├── nginx/nginx.conf.template # main entry point (stream, SNI routing), filled at startup
 ├── signal/                   # Signal TLS Proxy configs (+ upstream MIT license)
-├── xray/  mtproxy/           # 🚧
-├── ansible/                  # server configuration
+├── xray/                     # 🚧
+├── ansible/                  # server configuration and secrets (vault, git-ignored)
+├── .env_example              # variables expected by the stack, with fake values
 └── .github/workflows/        # deployment pipeline
 ```
 
 ## Next steps
 
-- Add Xray and MTProxy, then switch Nginx to SNI routing
-- Reconnect the users to the new Signal proxy
+- Finish testing Telegram from a phone, then send the links to the users
+- Add Xray (VLESS-REALITY, one client ID per user) as the default route of Nginx
 - Deploy the stack with Ansible (clone, first certificate, `docker compose up`)
 - Read the vault password from the macOS Keychain through a `vault_password_file` script instead of typing it
-- CI: validate the compose file, scan for leaked secrets (gitleaks) and vulnerable images (Trivy), then deploy
+- CI: render the Nginx template and run `nginx -t` (it would have caught a typo that briefly took Signal down), scan for leaked secrets (gitleaks) and vulnerable images (Trivy)
+- Restrict the deploy key to a single command on the server
+- Turn off HTTP access logs on port 80
 - Container hardening (`no-new-privileges`, dropped capabilities, read-only filesystems)
 - Monitoring: ship metrics to my existing Prometheus/Grafana stack on AWS, with no client IPs collected
 
