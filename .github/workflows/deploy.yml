@@ -32,5 +32,4 @@ jobs:
         run: |
           ssh -i ~/.ssh/id_deploy -p "${{ secrets.VPS_PORT }}" \
             "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
-            "cd ~/proxy-stack && git pull"
-           # "cd ~/proxy-stack && git pull && docker compose up -d"
+            "cd ~/proxy-stack && git pull --ff-only && docker compose up -d && docker compose restart nginx && docker compose ps"
