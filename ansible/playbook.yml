@@ -1,157 +1,154 @@
+---
 - name: Configure proxy server
   hosts: vps
-  become: yes
+  become: true
 
   tasks:
-  - name: Update apt cache
-    apt:
-      update_cache: yes
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
 
-
-# --- 2. Docker ---
+  # --- 2. Docker ---
   # Install Docker and let deploy run it without sudo
-  
-  - name: Install Docker and Docker Compose
-    apt:
-      name:
-        - docker.io
-        - docker-compose-v2
-      state: present
-  
-  - name: Add ubuntu user to docker group
-    user:
-      name: ubuntu
-      groups: docker
-      append: yes
+
+    - name: Install Docker and Docker Compose
+      ansible.builtin.apt:
+        name:
+          - docker.io
+          - docker-compose-v2
+        state: present
+
+    - name: Add ubuntu user to docker group
+      ansible.builtin.user:
+        name: ubuntu
+        groups: docker
+        append: true
 
   # --- 3. Firewall (UFW) ---
   # Allow SSH/HTTP/HTTPS before enabling UFW, or we lock ourselves out
 
-  - name: Install UFW
-    apt: 
-      name: ufw
-      state: present
-  
-  
-  - name: Allow SSH through UFW
-    community.general.ufw:
-      rule: allow
-      port: "{{ ansible_port }}"
-      proto: tcp
-  
-  - name: Allow HTTP through UFW
-    community.general.ufw:
-      rule: allow
-      port: "80"
-      proto: tcp
-  
-  - name: Allow HTTPS through UFW
-    community.general.ufw:
-      rule: allow
-      port: "443"
-      proto: tcp
+    - name: Install UFW
+      ansible.builtin.apt:
+        name: ufw
+        state: present
 
+    - name: Allow SSH through UFW
+      community.general.ufw:
+        rule: allow
+        port: "{{ ansible_port }}"
+        proto: tcp
 
-  - name: Enable UFW
-    community.general.ufw:
-      state: enabled
+    - name: Allow HTTP through UFW
+      community.general.ufw:
+        rule: allow
+        port: "80"
+        proto: tcp
 
+    - name: Allow HTTPS through UFW
+      community.general.ufw:
+        rule: allow
+        port: "443"
+        proto: tcp
+
+    - name: Enable UFW
+      community.general.ufw:
+        state: enabled
 
   # --- 4. fail2ban ---
   # Ban IPs that fail SSH login too many times (on the custom SSH port)
 
-  - name: Install fail2ban
-    apt:
-      name: fail2ban
-      state: present
+    - name: Install fail2ban
+      ansible.builtin.apt:
+        name: fail2ban
+        state: present
 
-  - name: Configure fail2ban for SSH
-    copy:
-      dest: /etc/fail2ban/jail.local
-      content: |
-        [sshd]
-        enabled  = true
-        port     = {{ ansible_port }}
-        backend  = systemd
-        maxretry = 5
-        findtime = 10m
-        bantime  = 1h
-    notify: Restart fail2ban
+    - name: Configure fail2ban for SSH
+      ansible.builtin.copy:
+        mode: "0644"
+        dest: /etc/fail2ban/jail.local
+        content: |
+          [sshd]
+          enabled  = true
+          port     = {{ ansible_port }}
+          backend  = systemd
+          maxretry = 5
+          findtime = 10m
+          bantime  = 1h
+      notify: Restart fail2ban
 
-  - name: Start fail2ban and enable it at boot
-    service:
-      name: fail2ban
-      state: started
-      enabled: yes
+    - name: Start fail2ban and enable it at boot
+      ansible.builtin.service:
+        name: fail2ban
+        state: started
+        enabled: true
 
 # ------ 5. Automatic deploy of the stack on VPS after every changement
-  
-  - name: Clone the repository
-    ansible.builtin.git:
-      repo: https://github.com/mariagrdt/proxy-stack.git
-      dest: /home/ubuntu/proxy-stack
-      version: main
-    become_user: ubuntu
-  
-  - name: Write .env file
-    copy:
-      dest: /home/ubuntu/proxy-stack/.env
-      content: |
-        MTG_SECRET={{ vault_mtg_secret }}
-        SIGNAL_DOMAIN={{ vault_signal_domain }}
-        MTPROXY_DOMAIN={{ vault_mtproxy_domain}}
-      owner: ubuntu
-      group: ubuntu
-      mode: "0600"
-    no_log: true # mask the secret
-  
-  - name: Create certbot config directory
-    ansible.builtin.file: 
-      path: /home/ubuntu/proxy-stack/certbot/conf
-      state: directory
-      mode: "0755"
-  
 
-  - name: Download recommended TLS settings
-    ansible.builtin.get_url:
-      url: "{{ item.url }}" # replaced by values down the "loop:"
-      dest: "/home/ubuntu/proxy-stack/certbot/conf/{{ item.name }}"
-      mode: "0644"
-    loop: 
-      - name: options-ssl-nginx.conf
-        url: https://raw.githubusercontent.com/certbot/certbot/refs/heads/main/certbot/src/certbot/_internal/plugins/nginx/tls_configs/options-ssl-nginx.conf
-      - name: ssl-dhparams.pem    
-        url: https://raw.githubusercontent.com/certbot/certbot/main/certbot/src/certbot/ssl-dhparams.pem
-  
+    - name: Clone the repository
+      ansible.builtin.git:
+        repo: https://github.com/mariagrdt/proxy-stack.git
+        dest: /home/ubuntu/proxy-stack
+        version: main
+      become: true
+      become_user: ubuntu
 
-  - name: Get the first Signal certificate (only once)
-    ansible.builtin.command:
-      cmd: >
-        docker compose run --rm -p 80:80
-        --entrypoint certbot certbot
-        certonly --standalone --register-unsafely-without-email
-        -d {{ vault_signal_domain }} --agree-tos
-      chdir: /home/ubuntu/proxy-stack
-      creates: "/home/ubuntu/proxy-stack/certbot/conf/live/{{ vault_signal_domain }}/fullchain.pem" #if the file exists, do nothing ( don't recreate the certificate)
+    - name: Write .env file
+      ansible.builtin.copy:
+        dest: /home/ubuntu/proxy-stack/.env
+        content: |
+          MTG_SECRET={{ vault_mtg_secret }}
+          SIGNAL_DOMAIN={{ vault_signal_domain }}
+          MTPROXY_DOMAIN={{ vault_mtproxy_domain }}
+        owner: ubuntu
+        group: ubuntu
+        mode: "0600"
+      no_log: true # mask the secret
 
-    
+    - name: Create certbot config directory
+      ansible.builtin.file:
+        path: /home/ubuntu/proxy-stack/certbot/conf
+        state: directory
+        mode: "0755"
 
-  - name: Make Signal use the certificate of our domain
-    ansible.builtin.file:
-      src: "/etc/letsencrypt/live/{{ vault_signal_domain }}/"
-      dest: /home/ubuntu/proxy-stack/certbot/conf/active
-      state: link
-      force: yes
- 
-  - name: Start the stack
-    ansible.builtin.command:
-      cmd: docker compose up -d
-      chdir: /home/ubuntu/proxy-stack
-    become_user: ubuntu
+    - name: Download recommended TLS settings
+      ansible.builtin.get_url:
+        url: "{{ item.url }}" # replaced by values down the "loop:"
+        dest: "/home/ubuntu/proxy-stack/certbot/conf/{{ item.name }}"
+        mode: "0644"
+      loop:
+        - name: options-ssl-nginx.conf
+          url: https://raw.githubusercontent.com/certbot/certbot/refs/heads/main/certbot/src/certbot/_internal/plugins/nginx/tls_configs/options-ssl-nginx.conf
+        - name: ssl-dhparams.pem
+          url: https://raw.githubusercontent.com/certbot/certbot/main/certbot/src/certbot/ssl-dhparams.pem
 
+    - name: Get the first Signal certificate (only once)
+      ansible.builtin.command:
+        cmd: >
+          docker compose run --rm -p 80:80
+          --entrypoint certbot certbot
+          certonly --standalone --register-unsafely-without-email
+          -d {{ vault_signal_domain }} --agree-tos
+        chdir: /home/ubuntu/proxy-stack
+        creates: "/home/ubuntu/proxy-stack/certbot/conf/live/{{ vault_signal_domain }}/fullchain.pem"
+        # if the file exists, do nothing ( don't recreate the certificate)
+
+    - name: Make Signal use the certificate of our domain
+      ansible.builtin.file:
+        src: "/etc/letsencrypt/live/{{ vault_signal_domain }}/"
+        dest: /home/ubuntu/proxy-stack/certbot/conf/active
+        state: link
+        force: true
+
+    - name: Start the stack
+      ansible.builtin.command:
+        cmd: docker compose up -d
+        chdir: /home/ubuntu/proxy-stack
+      become: true
+      become_user: ubuntu
+      changed_when: false # don't calculate it in "changed" of Ansible
 
   handlers:
-  - name: Restart fail2ban
-    service:
-      name: fail2ban
-      state: restarted
+    - name: Restart fail2ban
+      ansible.builtin.service:
+        name: fail2ban
+        state: restarted
