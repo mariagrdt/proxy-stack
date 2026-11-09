@@ -53,37 +53,35 @@ It worked, and it was secured (key-only SSH on a custom port, TLS with Let's Enc
 The new VPS started empty. Everything on it is described in this repository.
 
 ```
-                               Internet
-                      │                          │
-                  port 443                    port 80
-               proxy traffic            Let's Encrypt only
-                      │                          │
-                      ▼                          ▼
-   ┌────────────────────────────────────────────────────────┐
-   │                 Nginx (stream + http)                  │
-   │      only container reachable from the Internet        │
-   │      443: reads the SNI, never decrypts                │
-   │      80:  domain check → certbot, the rest → 404       │
-   └─────┬──────────────┬──────────────┬──────────────┬─────┘
-         │              │              │              │
-  signal.<domain>  fake-TLS domain  any other     port 80
-         │              │              │              │
-         ▼              ▼              ▼              ▼
-   ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐
-   │  Signal   │  │  MTProxy  │  │   Xray    │  │  certbot  │
-   │  proxy    │  │           │  │  REALITY  │  │           │
-   │           │  │           │  │  (to do)  │  │ (renews   │
-   │           │  │           │  │           │  │  the TLS  │
-   │           │  │           │  │           │  │  cert.)   │
-   └─────┬─────┘  └───────────┘  └───────────┘  └───────────┘
-         │
-         ▼
-   Signal servers
+                                         Phones
+                                            │
+                                        Port 443
+                                            │
+                                            ▼
+                                          Nginx
+                           (routes by domain, never decrypts)
+                                            │
+           ┌─────────────────────┬──────────┴──────────┬─────────────────────┐
+           │                     │                     │                     │
+     Signal domain       Camouflage domain      Unknown domain            Port 80
+                                                                      (Let's Encrypt)
+           │                     │                     │                     │
+           ▼                     ▼                     ▼                     ▼
+    nginx-terminate           MTProxy            Xray REALITY             certbot
+  (removes outer TLS)       (fake-TLS)             (planned)         (renews the cert)
+           │                     │                     │
+           ▼                     │                     │
+      nginx-relay                │                     │
+  (Signal hosts only)            │                     │
+           │                     │                     │
+           ▼                     ▼                     ▼
+    Signal servers       Telegram servers          Open web
 ```
 
+- **Only Nginx is reachable from the Internet.** Everything else stays on the internal Docker network.
+- **Until Xray is deployed**, unknown domains go to the Signal proxy.
 - **Port 443** carries the proxy traffic. Nginx sorts it by SNI and passes it on still encrypted.
 - **Port 80** is used **only** by Let's Encrypt to renew the Signal certificate. Any other request gets a 404: there is no website to redirect to HTTPS.
-- The "Signal proxy" box is two containers (`nginx-terminate` and `nginx-relay`), detailed [below](#why-signal-goes-through-two-nginx-containers).
 
 | Layer | Tool |
 |---|---|
