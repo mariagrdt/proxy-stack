@@ -91,7 +91,7 @@ The new VPS started empty. Everything on it is described in this repository.
 | Secrets | **Ansible Vault** (encrypted) → `.env` on the server |
 | Services | **Docker Compose**, one file for the whole stack |
 | Entry point | **Nginx** (`stream`), SNI routing with TLS passthrough |
-| Deployment | **GitHub Actions**: validate, then deploy over SSH with a dedicated key |
+| Deployment | **GitHub Actions**: secret scan, config checks, deploy over SSH, post-deploy check |
 
 ### How the traffic is routed
 
@@ -126,7 +126,7 @@ The server removes the outer layer only. It can never read messages.
 - **One entry point.** Only Nginx publishes ports. Docker bypasses UFW for published ports, so a single published service keeps the firewall meaningful.
 - **No secret and no private domain in the repository.** The camouflage domain must stay private: knowing it would reveal which connections are Telegram. Secrets and domains live in an Ansible Vault file (AES-256). The compose file and the Nginx config only contain `${VARIABLES}`; the Nginx config is a template that the official image fills at startup (`envsubst`).
 - **Images pinned by digest** (`@sha256:…`), so a moved tag can never silently change what runs.
-- **No connection logs on the proxy traffic** (`access_log off` on port 443). The users rely on this service for their privacy.
+- **No Nginx logs** (`access_log off`, and `error_log /dev/null` on port 443). The users rely on this service for their privacy; without logs, debugging port 443 means turning them back on temporarily.
 - **Right-sized.** One VPS doesn't need Kubernetes or Terraform. I use Terraform and Ansible on AWS in another project; here the value is in Ansible and Compose.
 
 ## Operations
@@ -136,10 +136,25 @@ The server removes the outer layer only. It can never read messages.
 | I change… | Tool | Triggered by | What happens |
 |---|---|---|---|
 | The **server** or a **secret** | **Ansible** | Me, after a dry run (`--check --diff`) | The server is brought to the state described in the playbook |
-| The **stack's code** (compose file, Nginx template, a new service) | **GitHub Actions** | `git push` to `main` | The compose file is validated, then the server runs `git pull --ff-only` + `docker compose up -d` |
+| The **stack's code** (compose file, Nginx template, a new service) | **GitHub Actions** | `git push` to `main` | Checks run first, then the server updates and restarts Nginx (details below) |
 | Nothing: the server is **brand new** | **Ansible** | Me | One command builds the whole stack |
 
 The pipeline never touches secrets: it uses the `.env` that Ansible wrote. Code changes are deployed automatically; infrastructure changes stay human-triggered, because a mistake there (firewall, SSH) could lock me out of the server. In a team, I would run them through a pipeline too, with review and approval.
+
+### The pipeline
+
+On every push to `main`, the `deploy` job only starts if `validate` is green.
+
+| Job | Step | What it catches |
+|---|---|---|
+| `validate` | **gitleaks** on the full history | A secret committed by mistake |
+| `validate` | `docker compose config` with fake values | An invalid compose file |
+| `validate` | Render the Nginx template with the real compose settings, then `nginx -t` | A broken config, or a template that is not rendered |
+| `validate` | **ansible-lint** (not blocking yet) | Mistakes and bad practices in the playbook |
+| `deploy` | Over SSH: `git pull --ff-only`, `docker compose up -d`, restart Nginx | Stops if the server copy has diverged from GitHub |
+| `deploy` | TLS check of Signal and MTProxy through the SNI routing | A service that no longer answers after the deployment |
+
+Nginx is restarted on every deployment because `docker compose up -d` does not detect changes inside mounted files, and the template is only rendered at startup. It costs a few seconds of downtime, which is acceptable for 5 users. There is no automatic rollback: a failed check alerts me, and I revert with a `git revert`, which goes through the same pipeline.
 
 ### What the playbook does
 

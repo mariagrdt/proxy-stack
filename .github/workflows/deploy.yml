@@ -54,4 +54,25 @@ jobs:
             "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
             "cd ~/proxy-stack && git pull --ff-only && docker compose up -d && docker compose restart nginx && docker compose ps"
       
-      
+    # Up to 6 tries: Nginx has just restarted 
+    # -connect: the VPS / -servername: the SNI used by Nginx to route
+    # -verify_hostname: the certificate must match this domain
+      - name: Check services answer
+        env: 
+          HOST: ${{ secrets.VPS_HOST }}
+          SIGNAL_DOMAIN: ${{ secrets.SIGNAL_DOMAIN }}
+          MTPROXY_DOMAIN: ${{ secrets.MTPROXY_DOMAIN }}
+        run: |
+          check() {
+            for i in 1 2 3 4 5 6; do
+              if echo | timeout 10 openssl s_client -connect "$HOST:443" -servername "$1" -verify_hostname "$1" 2>/dev/null | grep -q "Verify return code: 0"; then
+                return 0
+              fi
+              sleep 5
+            done
+            return 1
+          }
+          check "$SIGNAL_DOMAIN"  || { echo "Signal KO";  exit 1; }
+          echo "Signal OK"
+          check "$MTPROXY_DOMAIN" || { echo "MTProxy KO"; exit 1; }
+          echo "MTProxy OK"
