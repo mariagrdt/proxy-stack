@@ -32,7 +32,7 @@ jobs:
         continue-on-error: true
         run: |
           pipx install ansible-lint
-          ansible-galaxy --force collection install community.general
+          ansible-galaxy collection install community.general --force
           cd ansible && ansible-lint playbook.yml
 
   deploy:
