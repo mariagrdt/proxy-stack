@@ -31,8 +31,8 @@ jobs:
       - name: Lint the Ansible playbook
         continue-on-error: true
         run: |
-          pipx install --include-deps ansible-lint
-          ansible-galaxy collection install community.general
+          pipx install ansible-lint
+          ansible-galaxy --force collection install community.general
           cd ansible && ansible-lint playbook.yml
 
   deploy:
