@@ -11,9 +11,9 @@ Self-hosted proxies that give my family (5 users) reliable access to **Signal** 
 | Server built by **Ansible**: packages, firewall, fail2ban, code, secrets, certificate, containers | ✅ Running on the VPS; full rebuild on a blank server still to be tested |
 | **Nginx** single entry point, SNI routing on port 443 | ✅ Running |
 | **Signal** TLS Proxy | ✅ Running, tested from a phone |
-| **Telegram** MTProxy (fake-TLS) | ✅ Running on the VPS, phone test in progress |
+| **Telegram** MTProxy (fake-TLS) | ✅ Running, tested from a phone |
 | Secrets in **Ansible Vault** | ✅ No secret or private domain in the repository |
-| **CI/CD** (GitHub Actions): validate, then deploy | 🚧 First runs in progress |
+| **CI/CD** (GitHub Actions): validate, then deploy | ✅ Running on every push to `main` |
 | **Xray** (VLESS-REALITY) | 🚧 Next |
 | v1 (hand-built server) | Archived as an OVH snapshot after 6+ months in production |
 

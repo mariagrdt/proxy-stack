@@ -11,6 +11,11 @@ jobs:
     steps:
       - name: Get the code
         uses: actions/checkout@v4
+        with: 
+          fetch-depth: 0 # all history on github
+      
+      - name: Scan for leaked secrets
+        run:  docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.28.0 detect --source=/repo --no-banner --redact
 
       - name: Check docker-compose.yml
         run:  docker compose --env-file .env_example config --quiet
@@ -23,6 +28,13 @@ jobs:
             echo "127.0.0.1 certbot nginx-terminate mtproxy" >> /etc/hosts &&
             nginx -t
           '
+      - name: Lint the Ansible playbook
+        continue-on-error: true
+        run: |
+          pipx install --include-deps ansible-lint
+          ansible-galaxy collection install community.general
+          cd ansible && ansible-lint playbook.yml
+
   deploy:
     needs: validate
     runs-on: ubuntu-latest
@@ -41,3 +53,5 @@ jobs:
           ssh -i ~/.ssh/id_deploy -p "${{ secrets.VPS_PORT }}" \
             "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
             "cd ~/proxy-stack && git pull --ff-only && docker compose up -d && docker compose restart nginx && docker compose ps"
+      
+      
