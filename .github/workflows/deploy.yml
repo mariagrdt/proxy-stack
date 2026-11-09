@@ -14,9 +14,17 @@ jobs:
 
       - name: Check docker-compose.yml
         run:  docker compose --env-file .env_example config --quiet
-
+      
+      - name: Check the Nginx template
+        run: |
+          docker compose --env-file .env_example run --rm --no-deps -T --entrypoint sh nginx -c '
+            /docker-entrypoint.d/20-envsubst-on-templates.sh &&
+            grep -q signal.example.com /etc/nginx/nginx.conf &&
+            echo "127.0.0.1 certbot nginx-terminate mtproxy" >> /etc/hosts &&
+            nginx -t
+          '
   deploy:
-  
+    needs: validate
     runs-on: ubuntu-latest
     steps:
       - name: Preparing the key
