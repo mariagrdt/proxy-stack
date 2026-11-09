@@ -6,6 +6,8 @@ events {
 }
 
 http {
+    access_log off;
+    
   server {
         listen 80;
 
@@ -36,5 +38,8 @@ stream {
         listen 443;
         proxy_pass $name;
         ssl_preread on;
+
+        access_log            off;
+        error_log /dev/null;
     }
 }
