@@ -48,7 +48,7 @@ services:
     command: "/bin/sh -c 'while :; do sleep 6h & wait $${!}; /usr/sbin/nginx -s reload; done & /usr/sbin/nginx -c /usr/conf.d/nginx.conf -g \"daemon off;\"'"
   
   nginx-relay:
-   image: nginx:stable-alpine@sha256:901e593c95dc85f5a729f5765516321366ef4ac401821431d408897e95287d0a
+    image: nginx:stable-alpine@sha256:901e593c95dc85f5a729f5765516321366ef4ac401821431d408897e95287d0a
     restart: unless-stopped
     volumes:
       - ./signal/data/nginx-relay:/usr/conf.d
