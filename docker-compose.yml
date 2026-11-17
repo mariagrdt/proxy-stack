@@ -4,7 +4,7 @@ services:
   # MAIN NGINX (ENTER POINT)
 
   nginx:
-    image: nginx:stable-alpine@sha256:0e52bd054126cdc040b1276c0af347aeb02a41b9cfe305d6094767ac30e97949
+    image: nginx:stable-alpine@sha256:901e593c95dc85f5a729f5765516321366ef4ac401821431d408897e95287d0a
     restart: unless-stopped
     volumes:
       - ./nginx/nginx.conf.template:/etc/nginx/templates/nginx.conf.template:ro
@@ -23,7 +23,7 @@ services:
 # CERTIFICATES (Let's Encrypt, shared)
 
   certbot:
-    image: certbot/certbot@sha256:bc93cb710b413e6b456d622f9b0133b3e109c0a78c2ed9976af43d209b0a1805
+    image: certbot/certbot@sha256:c5698da859429ccee0fcc299a8000368198222d1f9e789ab6e388b491e8ce06d
     restart: unless-stopped
     volumes:
       - ./certbot/conf:/etc/letsencrypt
@@ -40,7 +40,7 @@ services:
   # CONFIG SIGNAL
 
   nginx-terminate:
-    image: nginx:stable-alpine@sha256:0e52bd054126cdc040b1276c0af347aeb02a41b9cfe305d6094767ac30e97949
+    image: nginx:stable-alpine@sha256:901e593c95dc85f5a729f5765516321366ef4ac401821431d408897e95287d0a
     restart: unless-stopped
     volumes:
       - ./signal/data/nginx-terminate:/usr/conf.d
@@ -48,7 +48,7 @@ services:
     command: "/bin/sh -c 'while :; do sleep 6h & wait $${!}; /usr/sbin/nginx -s reload; done & /usr/sbin/nginx -c /usr/conf.d/nginx.conf -g \"daemon off;\"'"
   
   nginx-relay:
-    image: nginx:stable-alpine@sha256:0e52bd054126cdc040b1276c0af347aeb02a41b9cfe305d6094767ac30e97949
+   image: nginx:stable-alpine@sha256:901e593c95dc85f5a729f5765516321366ef4ac401821431d408897e95287d0a
     restart: unless-stopped
     volumes:
       - ./signal/data/nginx-relay:/usr/conf.d
