@@ -3,6 +3,9 @@ name: deploy
 on:
   push:
     branches: [main]
+  schedule:
+    - cron: '0 3 * * *' # scan every night at 3 a.m
+  workflow_dispatch: 
 
 
 jobs:
@@ -20,6 +23,21 @@ jobs:
       - name: Check docker-compose.yml
         run:  docker compose --env-file .env_example config --quiet
       
+      - name: Scan configuration (compose, Dockerfiles)
+        run: |
+          docker run --rm -v "$PWD:/repo" aquasec/trivy:v0.76.2 config \
+            --severity HIGH,CRITICAL --exit-code 1 /repo
+      
+      - name: Scan images for vulnerabilities
+        run: |
+          fail=0
+          for img in $(docker compose --env-file .env_example config --images); do
+            echo "Scanning $img"
+            docker run --rm aquasec/trivy:v0.76.2 image \
+              --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$img" || fail=1
+          done
+          exit $fail
+  
       - name: Check the Nginx template
         run: |
           docker compose --env-file .env_example run --rm --no-deps -T --entrypoint sh nginx -c '
@@ -37,6 +55,7 @@ jobs:
 
   deploy:
     needs: validate
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - name: Preparing the key
