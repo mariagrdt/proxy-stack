@@ -1,8 +1,8 @@
-# Proxy Stack — Censorship-resistant messaging proxies on a Linux VPS
+# Proxy Stack: censorship-resistant messaging proxies on a Linux VPS
 
-Self-hosted proxies that give my family (5 users) reliable access to **Signal** and **Telegram**, and soon the open web, from a country that blocks them. The first version ran in production for more than 6 months. I am rebuilding it as a reproducible, infrastructure-as-code stack: a blank server becomes the full stack with one command.
+Self-hosted proxies that give my family (5 users) reliable access to **Signal** and **Telegram**, and soon the open web, from a country that blocks them. The first version ran in production for more than 6 months. I am rebuilding it as a reproducible, infrastructure-as-code stack, designed so that a blank server becomes the full stack with one command.
 
-**Tech:** Ansible · Ansible Vault · Docker Compose · Nginx (`stream`, SNI routing) · Let's Encrypt · GitHub Actions · UFW · fail2ban · Ubuntu (OVH VPS)
+**Tech:** Ansible · Ansible Vault · Docker Compose · Nginx (`stream`, SNI routing) · Let's Encrypt · GitHub Actions · gitleaks · Trivy · UFW · fail2ban · Ubuntu (OVH VPS)
 
 ## Status
 
@@ -14,6 +14,8 @@ Self-hosted proxies that give my family (5 users) reliable access to **Signal** 
 | **Telegram** MTProxy (fake-TLS) | ✅ Running, tested from a phone |
 | Secrets in **Ansible Vault** | ✅ No secret or private domain in the repository |
 | **CI/CD** (GitHub Actions): validate, then deploy | ✅ Running on every push to `main` |
+| **Vulnerability scanning** (Trivy): blocks fixable HIGH/CRITICAL, documented exceptions | ✅ Running on every push and every night |
+| Automatic digest updates (Dependabot) | 🚧 Next |
 | **Xray** (VLESS-REALITY) | 🚧 Next |
 | v1 (hand-built server) | Archived as an OVH snapshot after 6+ months in production |
 
@@ -89,7 +91,7 @@ The new VPS started empty. Everything on it is described in this repository.
 | Secrets | **Ansible Vault** (encrypted) → `.env` on the server |
 | Services | **Docker Compose**, one file for the whole stack |
 | Entry point | **Nginx** (`stream`), SNI routing with TLS passthrough |
-| Deployment | **GitHub Actions**: secret scan, config checks, deploy over SSH, post-deploy check |
+| Deployment | **GitHub Actions**: secret scan, vulnerability scan, config checks, deploy over SSH, post-deploy check |
 
 ### How the traffic is routed
 
@@ -123,7 +125,7 @@ The server removes the outer layer only. It can never read messages.
 - **No WAF, on purpose.** A WAF inspects HTTP requests, and there is no HTTP to inspect here. I used ModSecurity in a previous web project, where it made sense.
 - **One entry point.** Only Nginx publishes ports. Docker bypasses UFW for published ports, so a single published service keeps the firewall meaningful.
 - **No secret and no private domain in the repository.** The camouflage domain must stay private: knowing it would reveal which connections are Telegram. Secrets and domains live in an Ansible Vault file (AES-256). The compose file and the Nginx config only contain `${VARIABLES}`; the Nginx config is a template that the official image fills at startup (`envsubst`).
-- **Images pinned by digest** (`@sha256:…`), so a moved tag can never silently change what runs.
+- **Images pinned by digest** (`@sha256:…`), so a moved tag can never silently change what runs. The trade-off: pinned images stop receiving patches, so updates are deliberate and driven by the vulnerability scan (see below).
 - **No Nginx logs** (`access_log off`, and `error_log /dev/null` on port 443). The users rely on this service for their privacy; without logs, debugging port 443 means turning them back on temporarily.
 - **Right-sized.** One VPS doesn't need Kubernetes or Terraform. I use Terraform and Ansible on AWS in another project; here the value is in Ansible and Compose.
 
@@ -141,18 +143,30 @@ The pipeline never touches secrets: it uses the `.env` that Ansible wrote. Code 
 
 ### The pipeline
 
-On every push to `main`, the `deploy` job only starts if `validate` is green.
+On every push to `main`, the `deploy` job only starts if `validate` is green. A nightly scheduled run repeats the checks without deploying.
 
 | Job | Step | What it catches |
 |---|---|---|
 | `validate` | **gitleaks** on the full history | A secret committed by mistake |
 | `validate` | `docker compose config` with fake values | An invalid compose file |
+| `validate` | **Trivy config** on the repository | Misconfigurations in the infrastructure files it supports |
+| `validate` | **Trivy image** on every image of the stack (deduplicated) | Known HIGH/CRITICAL vulnerabilities that have a fix, minus documented exceptions |
 | `validate` | Render the Nginx template with the real compose settings, then `nginx -t` | A broken config, or a template that is not rendered |
 | `validate` | **ansible-lint** (not blocking yet) | Mistakes and bad practices in the playbook |
 | `deploy` | Over SSH: `git pull --ff-only`, `docker compose up -d`, restart Nginx | Stops if the server copy has diverged from GitHub |
 | `deploy` | TLS check of Signal and MTProxy through the SNI routing | A service that no longer answers after the deployment |
 
 Nginx is restarted on every deployment because `docker compose up -d` does not detect changes inside mounted files, and the template is only rendered at startup. It costs a few seconds of downtime, which is acceptable for 5 users. There is no automatic rollback: a failed check alerts me, and I revert with a `git revert`, which goes through the same pipeline.
+
+### Vulnerability management
+
+- **Two complementary scanners.** gitleaks covers the code and the full Git history: a secret deleted in a later commit is still found. Trivy covers the images: OS packages and the dependencies of the applications inside.
+- **Blocking policy.** The pipeline fails only on HIGH and CRITICAL vulnerabilities that have a fix (`--ignore-unfixed`). Blocking on everything would keep it red and push people to bypass it.
+- **First scan.** It blocked the pipeline: 1 critical and 9 high vulnerabilities in Nginx, because the pinned digest had become outdated. Bumping the digest fixed 7 of them, including the critical one.
+- **Mine or upstream?** When an image fails, I pull its tag and compare digests. A newer digest means the fix is on my side: I bump it. The same digest means the fix depends on the maintainer.
+- **I verify before trusting the scanner.** For Certbot, `pip list` showed that the Python environment Certbot actually uses was already patched: the flagged versions came from elsewhere in the image.
+- **Documented exceptions.** What I cannot fix goes to [`.trivyignore`](.trivyignore), each entry with a justification and an expiry date, so the pipeline forces a review. Example: the MTProxy binary embeds outdated Go modules and no newer release exists yet.
+- **Nightly scan.** New CVEs are published every day, so a scheduled run rescans images that were clean when deployed.
 
 ### What the playbook does
 
@@ -186,7 +200,8 @@ ansible-playbook -i ansible/inventory.ini ansible/playbook.yml --ask-vault-pass 
 ├── signal/                     # Signal TLS Proxy configs (+ upstream MIT license)
 ├── ansible/                    # playbook, inventory example (vault and inventory are git-ignored)
 ├── .env_example                # variables expected by the stack, with fake values
-└── .github/workflows/          # validate + deploy pipeline
+├── .trivyignore                # accepted vulnerabilities, each justified with an expiry date
+└── .github/workflows/          # validate + deploy pipeline, nightly scan
 ```
 
 ## Credits
