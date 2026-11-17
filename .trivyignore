@@ -1,0 +1,46 @@
+# =====================================================================
+# Trivy exceptions. Each entry: why it cannot be fixed on our side,
+# why the risk is acceptable, and an expiry date to force a review.
+# =====================================================================
+
+# --- nginx:stable-alpine (official image, latest digest already used) ---
+# libxslt is fixed in Alpine (1.1.43-r4) but the official nginx image
+# has not been rebuilt yet. The XSLT module is not loaded in our config,
+# so the vulnerable library is never used. Short expiry: upstream rebuild expected soon.
+CVE-2026-125350 exp:2026-12-01
+CVE-2026-87636 exp:2026-12-01
+CVE-2026-9947 exp:2026-12-01
+
+# --- certbot/certbot (latest digest already used) ---
+# Reported versions (urllib3 2.7.0, setuptools 70.3.0) differ from the
+# installed site-packages (urllib3 2.8.0, setuptools 84.2.1): likely a stale
+# third-party SBOM (see Trivy warning). Certbot is not exposed to the internet,
+# it only runs periodically to renew certificates.
+CVE-2026-114613 exp:2026-12-15
+GHSA-6v7p-g79w-8964 exp:2026-12-15
+CVE-2025-47273 exp:2026-12-15
+CVE-2026-97687 exp:2026-12-15
+CVE-2026-97689 exp:2026-12-15
+
+# --- nineseconds/mtg:2 (latest release already used) ---
+# Go dependencies (golang.org/x/crypto, golang.org/x/net) are compiled into
+# the upstream binary. Fixed module versions exist, but no mtg release uses
+# them yet. Cannot be patched without rebuilding mtg from source.
+# Review at each new mtg release.
+CVE-2026-39828 exp:2026-12-31
+CVE-2026-39829 exp:2026-12-31
+CVE-2026-39830 exp:2026-12-31
+CVE-2026-39831 exp:2026-12-31
+CVE-2026-39832 exp:2026-12-31
+CVE-2026-39835 exp:2026-12-31
+CVE-2026-42508 exp:2026-12-31
+CVE-2026-46595 exp:2026-12-31
+CVE-2026-46597 exp:2026-12-31
+CVE-2026-56854 exp:2026-12-31
+CVE-2026-25681 exp:2026-12-31
+CVE-2026-27136 exp:2026-12-31
+CVE-2026-33814 exp:2026-12-31
+CVE-2026-39821 exp:2026-12-31
+CVE-2026-46600 exp:2026-12-31
+CVE-2026-78661 exp:2026-12-31
+CVE-2026-78669 exp:2026-12-31
