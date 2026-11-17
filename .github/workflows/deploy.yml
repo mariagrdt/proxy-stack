@@ -25,7 +25,7 @@ jobs:
       
       - name: Scan configuration (compose, Dockerfiles)
         run: |
-          docker run --rm -v "$PWD:/repo" aquasec/trivy:v0.76.2 config \
+          docker run --rm -v "$PWD:/repo" aquasec/trivy:0.76.2 config \
             --severity HIGH,CRITICAL --exit-code 1 /repo
       
       - name: Scan images for vulnerabilities
@@ -33,7 +33,7 @@ jobs:
           fail=0
           for img in $(docker compose --env-file .env_example config --images); do
             echo "Scanning $img"
-            docker run --rm aquasec/trivy:v0.76.2 image \
+            docker run --rm aquasec/trivy:0.76.2 image \
               --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$img" || fail=1
           done
           exit $fail
