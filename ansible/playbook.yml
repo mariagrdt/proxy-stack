@@ -74,6 +74,23 @@
           maxretry = 5
           findtime = 10m
           bantime  = 1h
+
+          # Each new ban of the same IP lasts longer: 1h, 2h, 4h.... up to 1 week
+          bantime.increment   = true
+          bantime.multipliers = 1 2 4 8 16 32 64
+          bantime.maxtime     = 1w
+          bantime.rndtime     = 10m
+
+      notify: Restart fail2ban
+    
+    - name: Keep fail2ban ban history for 7 days
+      ansible.builtin.copy:
+        mode: "0644"
+        dest: /etc/fail2ban/fail2ban.local
+        content: |
+          [Definition]
+          # Must be >= bantime.maxtime, otherwise repeat offenders are forgotten
+          dbpurgeage = 7d
       notify: Restart fail2ban
 
     - name: Start fail2ban and enable it at boot
