@@ -13,9 +13,9 @@ Self-hosted proxies that give my family (5 users) reliable access to **Signal** 
 | **Signal** TLS Proxy | ✅ Running, tested from a phone |
 | **Telegram** MTProxy (fake-TLS) | ✅ Running, tested from a phone |
 | Secrets in **Ansible Vault** | ✅ No secret or private domain in the repository |
-| **CI/CD** (GitHub Actions): validate, then deploy | ✅ Running on every push to `main` |
-| **Vulnerability scanning** (Trivy): blocks fixable HIGH/CRITICAL, documented exceptions | ✅ Running on every push and every night |
-| Automatic digest updates (Dependabot) | 🚧 Next |
+| **CI/CD** (GitHub Actions): validate, then deploy | ✅ Validates every pull request; deploys on every push to `main` |
+| **Vulnerability scanning** (Trivy): blocks fixable HIGH/CRITICAL, documented exceptions | ✅ Running on every pull request, every push and every night |
+| **Dependabot**: weekly update PRs for image digests and GitHub Actions | ✅ Configured |
 | **Xray** (VLESS-REALITY) | 🚧 Next |
 | v1 (hand-built server) | Archived as an OVH snapshot after 6+ months in production |
 
@@ -125,7 +125,7 @@ The server removes the outer layer only. It can never read messages.
 - **No WAF, on purpose.** A WAF inspects HTTP requests, and there is no HTTP to inspect here. I used ModSecurity in a previous web project, where it made sense.
 - **One entry point.** Only Nginx publishes ports. Docker bypasses UFW for published ports, so a single published service keeps the firewall meaningful.
 - **No secret and no private domain in the repository.** The camouflage domain must stay private: knowing it would reveal which connections are Telegram. Secrets and domains live in an Ansible Vault file (AES-256). The compose file and the Nginx config only contain `${VARIABLES}`; the Nginx config is a template that the official image fills at startup (`envsubst`).
-- **Images pinned by digest** (`@sha256:…`), so a moved tag can never silently change what runs. The trade-off: pinned images stop receiving patches, so updates are deliberate and driven by the vulnerability scan (see below).
+- **Images pinned as `tag@digest`** (e.g. `nginx:stable-alpine@sha256:…`). Docker only uses the digest, so a moved tag can never silently change what runs, and what runs is exactly what Trivy scanned. The tag is for humans, and it tells Dependabot which line of releases to follow. The trade-off: pinned images stop receiving patches on their own, so Dependabot proposes each update as a pull request (see below).
 - **No Nginx logs** (`access_log off`, and `error_log /dev/null` on port 443). The users rely on this service for their privacy; without logs, debugging port 443 means turning them back on temporarily.
 - **Right-sized.** One VPS doesn't need Kubernetes or Terraform. I use Terraform and Ansible on AWS in another project; here the value is in Ansible and Compose.
 
@@ -143,7 +143,7 @@ The pipeline never touches secrets: it uses the `.env` that Ansible wrote. Code 
 
 ### The pipeline
 
-On every push to `main`, the `deploy` job only starts if `validate` is green. A nightly scheduled run repeats the checks without deploying.
+On every push to `main`, the `deploy` job only starts if `validate` is green. Pull requests and the nightly scheduled run go through `validate` only: `deploy` requires a `push` event, so nothing reaches the server until a human merges into `main`.
 
 | Job | Step | What it catches |
 |---|---|---|
@@ -166,7 +166,26 @@ Nginx is restarted on every deployment because `docker compose up -d` does not d
 - **Mine or upstream?** When an image fails, I pull its tag and compare digests. A newer digest means the fix is on my side: I bump it. The same digest means the fix depends on the maintainer.
 - **I verify before trusting the scanner.** For Certbot, `pip list` showed that the Python environment Certbot actually uses was already patched: the flagged versions came from elsewhere in the image.
 - **Documented exceptions.** What I cannot fix goes to [`.trivyignore`](.trivyignore), each entry with a justification and an expiry date, so the pipeline forces a review. Example: the MTProxy binary embeds outdated Go modules and no newer release exists yet.
-- **Nightly scan.** New CVEs are published every day, so a scheduled run rescans images that were clean when deployed.
+- **Nightly scan.** New CVEs are published every day, so a scheduled run rescans images that were clean when deployed. It proved its value: with no commit on my side, a nightly run failed on 6 new HIGH/CRITICAL CVEs in the Nginx binary itself (1.30.6, fixed in 1.30.7). One of them affects the `resolver` directive, which my config uses, so an exception was not acceptable. The fix was a newer digest.
+
+### Automated updates (Dependabot)
+
+**Why.** Pinning by digest means every patch is a manual change: notice the alert, find the new digest, edit the compose file. With images that are rebuilt often, that does not scale, and a forgotten update leaves a known vulnerability running. The nightly scan tells me *that* something is wrong; Dependabot does the repetitive part of fixing it.
+
+**How.** [`.github/dependabot.yml`](.github/dependabot.yml) checks two ecosystems every week:
+
+| Ecosystem | What it updates |
+|---|---|
+| `docker-compose` | The digest of each image in `docker-compose.yml`, by following its tag |
+| `github-actions` | The actions used by the pipeline (e.g. `actions/checkout`), which run with access to the deployment secrets |
+
+```
+New image published → Dependabot opens a PR with the new digest
+  → validate runs on the PR (gitleaks, Trivy, nginx -t); deploy is skipped
+  → I review and merge → push to main → validate + deploy to the VPS
+```
+
+**Control stays with me.** Dependabot never merges or deploys. Every update goes through the same checks as my own changes, and only a merge into `main` reaches the server.
 
 ### What the playbook does
 
@@ -201,7 +220,9 @@ ansible-playbook -i ansible/inventory.ini ansible/playbook.yml --ask-vault-pass 
 ├── ansible/                    # playbook, inventory example (vault and inventory are git-ignored)
 ├── .env_example                # variables expected by the stack, with fake values
 ├── .trivyignore                # accepted vulnerabilities, each justified with an expiry date
-└── .github/workflows/          # validate + deploy pipeline, nightly scan
+└── .github/
+    ├── workflows/              # validate + deploy pipeline, nightly scan
+    └── dependabot.yml          # weekly update PRs for images and actions
 ```
 
 ## Credits
