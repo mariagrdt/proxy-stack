@@ -3,6 +3,8 @@ name: deploy
 on:
   push:
     branches: [main]
+  pull_request: 
+    branches: [main]
   schedule:
     - cron: '0 3 * * *' # scan every night at 3 a.m
   workflow_dispatch: 

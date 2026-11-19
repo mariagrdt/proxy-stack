@@ -22,7 +22,7 @@ services:
 # CERTIFICATES (Let's Encrypt, shared)
 
   certbot:
-    image: certbot/certbot@sha256:c5698da859429ccee0fcc299a8000368198222d1f9e789ab6e388b491e8ce06d
+    image: certbot/certbot:v5.10.0@sha256:c5698da859429ccee0fcc299a8000368198222d1f9e789ab6e388b491e8ce06d
     restart: unless-stopped
     volumes:
       - ./certbot/conf:/etc/letsencrypt
@@ -32,7 +32,7 @@ services:
   # CONFIG MTPROXY (Telegram)
 
   mtproxy:
-    image: nineseconds/mtg@sha256:9553495b5216cbe6b238e88ce8a3d43ef582e4dc45fcdd7a14d54497500f5d4f
+    image: nineseconds/mtg:2@sha256:9553495b5216cbe6b238e88ce8a3d43ef582e4dc45fcdd7a14d54497500f5d4f
     restart: unless-stopped
     command: simple-run -i prefer-ipv4 0.0.0.0:3128 ${MTG_SECRET}
   
