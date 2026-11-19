@@ -4,8 +4,7 @@ services:
   # MAIN NGINX (ENTER POINT)
 
   nginx:
-    image: nginx:stable-alpine@sha256:901e593c95dc85f5a729f5765516321366ef4ac401821431d408897e95287d0a
-    restart: unless-stopped
+    image: nginx:stable-alpine@sha256:3bc3836dc0be3b811f238210360bf8e7ca8a2d0effdae46160bf1f3578710051
     volumes:
       - ./nginx/nginx.conf.template:/etc/nginx/templates/nginx.conf.template:ro
     environment:
@@ -40,7 +39,7 @@ services:
   # CONFIG SIGNAL
 
   nginx-terminate:
-    image: nginx:stable-alpine@sha256:901e593c95dc85f5a729f5765516321366ef4ac401821431d408897e95287d0a
+    image: nginx:stable-alpine@sha256:3bc3836dc0be3b811f238210360bf8e7ca8a2d0effdae46160bf1f3578710051
     restart: unless-stopped
     volumes:
       - ./signal/data/nginx-terminate:/usr/conf.d
@@ -48,7 +47,7 @@ services:
     command: "/bin/sh -c 'while :; do sleep 6h & wait $${!}; /usr/sbin/nginx -s reload; done & /usr/sbin/nginx -c /usr/conf.d/nginx.conf -g \"daemon off;\"'"
   
   nginx-relay:
-    image: nginx:stable-alpine@sha256:901e593c95dc85f5a729f5765516321366ef4ac401821431d408897e95287d0a
+    image: nginx:stable-alpine@sha256:3bc3836dc0be3b811f238210360bf8e7ca8a2d0effdae46160bf1f3578710051
     restart: unless-stopped
     volumes:
       - ./signal/data/nginx-relay:/usr/conf.d
