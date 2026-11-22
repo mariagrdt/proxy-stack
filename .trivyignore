@@ -3,6 +3,13 @@
 # why the risk is acceptable, and an expiry date to force a review.
 # =====================================================================
 
+--- nginx:stable-alpine (latest digest, not rebuilt yet) ---
+# libxml2 2.13.9-r2 is fixed in Alpine (r3), but the official nginx image
+# has not been rebuilt with it yet. libxml2 is only used by the XSLT module,
+# which our config does not load (stream only, no XML parsing).
+# Short expiry: upstream rebuild expected soon.
+CVE-2026-86144 exp:2026-12-10
+
 # --- certbot/certbot (5.10.0, latest release) ---
 # Trivy reads a stale third-party SBOM (see Trivy warning), not what is installed.
 # `pip list` in the image shows the Python environment Certbot uses is already patched:
