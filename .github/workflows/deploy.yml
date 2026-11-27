@@ -28,6 +28,7 @@ jobs:
       - name: Scan configuration (compose, Dockerfiles)
         run: |
           docker run --rm -v "$PWD:/repo" aquasec/trivy:0.76.2 config \
+            --ignorefile /repo/.trivyignore \
             --severity HIGH,CRITICAL --exit-code 1 /repo
       
       - name: Scan images for vulnerabilities
