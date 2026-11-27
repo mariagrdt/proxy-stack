@@ -33,12 +33,14 @@ jobs:
       - name: Scan images for vulnerabilities
         run: |
           mkdir -p "$RUNNER_TEMP/trivy-cache"
+          docker compose --env-file .env_example build
           fail=0
           for img in $(docker compose --env-file .env_example config --images | sort -u); do
             echo "::group::Scanning $img"
             docker run --rm \
               -v "$RUNNER_TEMP/trivy-cache:/root/.cache/trivy" \
               -v "$PWD:/repo:ro" \
+              -v /var/run/docker.sock:/var/run/docker.sock \
               aquasec/trivy:0.76.2 image \
               --scanners vuln,secret \
               --ignorefile /repo/.trivyignore \
@@ -80,7 +82,7 @@ jobs:
         run: |
           ssh -i ~/.ssh/id_deploy -p "${{ secrets.VPS_PORT }}" \
             "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
-            "cd ~/proxy-stack && git pull --ff-only && docker compose up -d && docker compose restart nginx && docker compose ps"
+            "cd ~/proxy-stack && git pull --ff-only && docker compose up -d --build && docker compose restart nginx && docker compose ps"
       
     # Up to 6 tries: Nginx has just restarted 
     # -connect: the VPS / -servername: the SNI used by Nginx to route

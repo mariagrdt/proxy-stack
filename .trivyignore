@@ -3,6 +3,10 @@
 # why the risk is acceptable, and an expiry date to force a review.
 # =====================================================================
 
+# --- nginx/Dockerfile ---
+# Nginx needs root to open port 443, like the official image.
+# The processes that handle the traffic run as the "nginx" user.
+DS-0002 exp:2027-03-01
 
 
 # --- certbot/certbot (5.10.0, latest release) ---
@@ -41,3 +45,4 @@ CVE-2026-39821 exp:2026-12-31
 CVE-2026-46600 exp:2026-12-31
 CVE-2026-78661 exp:2026-12-31
 CVE-2026-78669 exp:2026-12-31
+
