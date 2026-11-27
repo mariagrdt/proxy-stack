@@ -103,7 +103,7 @@ jobs:
             done
             return 1
           }
-          check "$SIGNAL_DOMAIN"  || { echo "Signal KO";  exit 1; }
-          echo "Signal OK"
-          check "$MTPROXY_DOMAIN" || { echo "MTProxy KO"; exit 1; }
-          echo "MTProxy OK"
+          fail=0
+          if check "$SIGNAL_DOMAIN";  then echo "Signal OK";  else echo "Signal KO";  fail=1; fi
+          if check "$MTPROXY_DOMAIN"; then echo "MTProxy OK"; else echo "MTProxy KO"; fail=1; fi
+          exit $fail
