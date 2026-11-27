@@ -10,6 +10,7 @@ Self-hosted proxies that give my family (5 users) reliable access to **Signal** 
 |---|---|
 | Server built by **Ansible**: packages, firewall, fail2ban, code, secrets, certificate, containers | ✅ Running on the VPS; full rebuild on a blank server still to be tested |
 | **Nginx** single entry point, SNI routing on port 443 | ✅ Running |
+| **Own Nginx image**: official image minus unused modules, with the latest Alpine patches | 🚧 Dockerfile written, pipeline being adapted |
 | **Signal** TLS Proxy | ✅ Running, tested from a phone |
 | **Telegram** MTProxy (fake-TLS) | ✅ Running, tested from a phone |
 | Secrets in **Ansible Vault** | ✅ No secret or private domain in the repository |
@@ -126,6 +127,7 @@ The server removes the outer layer only. It can never read messages.
 - **One entry point.** Only Nginx publishes ports. Docker bypasses UFW for published ports, so a single published service keeps the firewall meaningful.
 - **No secret and no private domain in the repository.** The camouflage domain must stay private: knowing it would reveal which connections are Telegram. Secrets and domains live in an Ansible Vault file (AES-256). The compose file and the Nginx config only contain `${VARIABLES}`; the Nginx config is a template that the official image fills at startup (`envsubst`).
 - **Images pinned as `tag@digest`** (e.g. `nginx:stable-alpine@sha256:…`). Docker only uses the digest, so a moved tag can never silently change what runs, and what runs is exactly what Trivy scanned. The tag is for humans, and it tells Renovate which line of releases to follow. The trade-off: pinned images stop receiving patches on their own, so Renovate proposes each update as a pull request (see below).
+- **Remove what is not used, instead of ignoring its vulnerabilities.** The official Nginx image ships 5 optional modules (XSLT, njs, image-filter, GeoIP, ACME) and the libraries they need. My config loads none of them. [`nginx/Dockerfile`](nginx/Dockerfile) starts from the official image (pinned by digest) and removes them with `apk del`, which also drops their libraries (libxml2, libxslt, gd, libpng…). It then runs `apk upgrade` to apply Alpine patches without waiting for the official image to be rebuilt. The trade-off: two builds on different days can contain different package versions, so the build is less reproducible. Every build is scanned by Trivy before it can be deployed.
 - **No Nginx logs** (`access_log off`, and `error_log /dev/null` on port 443). The users rely on this service for their privacy; without logs, debugging port 443 means turning them back on temporarily.
 - **Right-sized.** One VPS doesn't need Kubernetes or Terraform. I use Terraform and Ansible on AWS in another project; here the value is in Ansible and Compose.
 
@@ -149,11 +151,11 @@ On every push to `main`, the `deploy` job only starts if `validate` is green. Pu
 |---|---|---|
 | `validate` | **gitleaks** on the full history | A secret committed by mistake |
 | `validate` | `docker compose config` with fake values | An invalid compose file |
-| `validate` | **Trivy config** on the repository | Misconfigurations in the infrastructure files it supports |
-| `validate` | **Trivy image** on every image of the stack (deduplicated) | Known HIGH/CRITICAL vulnerabilities that have a fix, minus documented exceptions |
+| `validate` | **Trivy config** on the repository | Misconfigurations in the Dockerfile |
+| `validate` | **Trivy image** on every image of the stack (deduplicated), including the Nginx image built from the Dockerfile | Known HIGH/CRITICAL vulnerabilities that have a fix, minus documented exceptions |
 | `validate` | Render the Nginx template with the real compose settings, then `nginx -t` | A broken config, or a template that is not rendered |
 | `validate` | **ansible-lint** (not blocking yet) | Mistakes and bad practices in the playbook |
-| `deploy` | Over SSH: `git pull --ff-only`, `docker compose up -d`, restart Nginx | Stops if the server copy has diverged from GitHub |
+| `deploy` | Over SSH: `git pull --ff-only`, `docker compose up -d --build` (rebuilds the Nginx image), restart Nginx | Stops if the server copy has diverged from GitHub |
 | `deploy` | TLS check of Signal and MTProxy through the SNI routing | A service that no longer answers after the deployment |
 
 Nginx is restarted on every deployment because `docker compose up -d` does not detect changes inside mounted files, and the template is only rendered at startup. It costs a few seconds of downtime, which is acceptable for 5 users. There is no automatic rollback: a failed check alerts me, and I revert with a `git revert`, which goes through the same pipeline.
@@ -178,11 +180,11 @@ Nginx is restarted on every deployment because `docker compose up -d` does not d
 
 | Setting | Why |
 |---|---|
-| `config:recommended` | Detects Docker Compose images and GitHub Actions, and updates digests |
+| `config:recommended` | Detects Docker Compose images, the `FROM` line of the Dockerfile and GitHub Actions, and updates digests |
 | `schedule: before 6am` (Paris time) | Update PRs are opened at night and already scanned when I look at them |
 | `dependencyDashboardApproval: false` | PRs are opened directly; the dependency dashboard still lists everything Renovate tracks |
 
-The three Nginx services share one image, so Renovate updates them in a single PR.
+The three Nginx services share one image built from one Dockerfile, so a single PR updates all of them.
 
 ```
 New image or new digest → Renovate opens a PR
@@ -192,7 +194,7 @@ New image or new digest → Renovate opens a PR
 
 **Control stays with me.** Renovate never merges or deploys. Every update goes through the same checks as my own changes, and only a merge into `main` reaches the server.
 
-**A new digest is not always a fix.** The rebuilt Nginx image still shipped the vulnerable `libxml2` (the Alpine fix was not in it yet). I merged the update anyway and kept a short-lived, documented exception: libxml2 is only used by the XSLT module, which my config does not load.
+**A new digest is not always a fix.** The rebuilt Nginx image still shipped a vulnerable `libxml2`: the fix existed in Alpine, but the official image had not been rebuilt with it. I first added short-lived, documented exceptions (libxml2 is only used by modules my config does not load). When libxml2 blocked the pipeline for the third time in a week, I treated the cause instead of the symptom: my own Nginx image no longer contains libxml2 at all, and these exceptions are gone.
 
 ### What the playbook does
 
@@ -222,7 +224,9 @@ ansible-playbook -i ansible/inventory.ini ansible/playbook.yml --ask-vault-pass 
 ```
 .
 ├── docker-compose.yml          # the whole stack
-├── nginx/nginx.conf.template   # main entry point (SNI routing), filled at startup
+├── nginx/
+│   ├── Dockerfile              # official image minus unused modules, plus Alpine patches
+│   └── nginx.conf.template     # main entry point (SNI routing), filled at startup
 ├── signal/                     # Signal TLS Proxy configs (+ upstream MIT license)
 ├── ansible/                    # playbook, inventory example (vault and inventory are git-ignored)
 ├── .env_example                # variables expected by the stack, with fake values

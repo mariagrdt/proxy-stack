@@ -3,19 +3,7 @@
 # why the risk is acceptable, and an expiry date to force a review.
 # =====================================================================
 
-# --- nginx:stable-alpine (latest digest, not rebuilt yet) ---
-# libxml2 is fixed in Alpine (r3 to r5), but the official nginx image has not
-# been rebuilt with the latest fixes yet (current digest ships r2, newest ships r3).
-# libxml2 is only used by the XSLT module, which our config does not load
-# (stream only, no XML parsing). CVE-2026-11979 is in the xmlcatalog CLI tool,
-# never run in the container. Short expiry: upstream rebuild expected soon.
-CVE-2026-86144 exp:2026-12-10
-CVE-2026-11979 exp:2026-12-10
-CVE-2026-86138 exp:2026-12-10
-CVE-2026-86139 exp:2026-12-10
-CVE-2026-86140 exp:2026-12-10
-CVE-2026-86142 exp:2026-12-10
-CVE-2026-86143 exp:2026-12-10
+
 
 # --- certbot/certbot (5.10.0, latest release) ---
 # Trivy reads a stale third-party SBOM (see Trivy warning), not what is installed.
@@ -53,6 +41,3 @@ CVE-2026-39821 exp:2026-12-31
 CVE-2026-46600 exp:2026-12-31
 CVE-2026-78661 exp:2026-12-31
 CVE-2026-78669 exp:2026-12-31
-# Go stdlib compiled into mtg. Only affects HTTP/1 servers;
-# mtg runs in simple-run mode (no HTTP server) and publishes no port.
-CVE-2026-97054 exp:2026-12-31
