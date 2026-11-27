@@ -7,6 +7,7 @@ services:
     build: ./nginx
     image: proxy-nginx
 
+    restart: unless-stopped
     volumes:
       - ./nginx/nginx.conf.template:/etc/nginx/templates/nginx.conf.template:ro
     environment:
@@ -53,7 +54,8 @@ services:
   nginx-relay:
     build: ./nginx
     image: proxy-nginx
-    
+
+    restart: unless-stopped
     volumes:
       - ./signal/data/nginx-relay:/usr/conf.d
     command: "/bin/sh -c 'while :; do sleep 6h & wait $${!}; /usr/sbin/nginx -s reload; done & /usr/sbin/nginx -c /usr/conf.d/nginx.conf -g \"daemon off;\"'"
