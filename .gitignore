@@ -7,3 +7,4 @@ certbot/
 ansible/inventory.ini
 docs/
 ansible/group_vars/all/vault.yml
+.DS_Store
